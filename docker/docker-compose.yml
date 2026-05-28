@@ -1,0 +1,70 @@
+services:
+  mirth-db:
+    image: postgres:16-alpine
+    container_name: mirth-db
+    environment:
+      POSTGRES_DB: mirthdb
+      POSTGRES_USER: mirthdb
+      POSTGRES_PASSWORD: mirthdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - mirth-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mirthdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mirth-connect:
+    image: nextgenhealthcare/connect:4.5.2
+    container_name: mirth-connect
+    depends_on:
+      mirth-db:
+        condition: service_healthy
+    environment:
+      DATABASE: postgres
+      DATABASE_URL: jdbc:postgresql://mirth-db:5432/mirthdb
+      DATABASE_USERNAME: mirthdb
+      DATABASE_PASSWORD: mirthdb
+      VMOPTIONS: "-Xmx512m"
+    ports:
+      - "8443:8443"
+      - "8082:8080"
+      - "6661:6661"
+      - "6662:6662"
+      - "6663:6663"
+      - "6664:6664"
+    volumes:
+      - mirth-appdata:/opt/connect/appdata
+      - ./custom-lib:/opt/connect/custom-lib
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:3.7.0
+    container_name: mirth-kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_RETENTION_HOURS: 168
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mirth-db-data:
+  mirth-appdata:

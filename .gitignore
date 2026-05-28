@@ -1,0 +1,23 @@
+# Editor / OS
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+
+# Logs
+*.log
+logs/
+
+# Tokens / secrets
+.env
+*.env
+.token
+*.key
+
+# Test artifacts
+/tmp/
+exports/
+
+# JAR caches (we document what's needed but don't commit JARs)
+docker/custom-lib/*.jar

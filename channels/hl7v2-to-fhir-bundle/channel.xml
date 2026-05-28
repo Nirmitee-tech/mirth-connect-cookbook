@@ -1,0 +1,610 @@
+<channel version="4.5.2">
+  <id>b9db3e58-c373-4b94-9729-d45dc6dca929</id>
+  <nextMetaDataId>2</nextMetaDataId>
+  <name>HL7v2 ADT to FHIR Bundle</name>
+  <description>HL7v2 ADT to FHIR R4 Bundle with mapping tables and business rules</description>
+  <revision>1</revision>
+  <sourceConnector version="4.5.2">
+    <metaDataId>0</metaDataId>
+    <name>sourceConnector</name>
+    <properties class="com.mirth.connect.connectors.tcp.TcpReceiverProperties" version="4.5.2">
+      <pluginProperties/>
+      <listenerConnectorProperties version="4.5.2">
+        <host>0.0.0.0</host>
+        <port>6661</port>
+      </listenerConnectorProperties>
+      <sourceConnectorProperties version="4.5.2">
+        <responseVariable>Auto-generate (After source transformer)</responseVariable>
+        <respondAfterProcessing>true</respondAfterProcessing>
+        <processBatch>false</processBatch>
+        <firstResponse>true</firstResponse>
+        <processingThreads>1</processingThreads>
+        <resourceIds class="linked-hash-map">
+          <entry>
+            <string>Default Resource</string>
+            <string>[Default Resource]</string>
+          </entry>
+        </resourceIds>
+        <queueBufferSize>1000</queueBufferSize>
+      </sourceConnectorProperties>
+      <transmissionModeProperties class="com.mirth.connect.plugins.mllpmode.MLLPModeProperties">
+        <pluginPointName>MLLP</pluginPointName>
+        <startOfMessageBytes>0B</startOfMessageBytes>
+        <endOfMessageBytes>1C0D</endOfMessageBytes>
+        <useMLLPv2>false</useMLLPv2>
+        <ackBytes>06</ackBytes>
+        <nackBytes>15</nackBytes>
+        <maxRetries>2</maxRetries>
+      </transmissionModeProperties>
+      <serverMode>true</serverMode>
+      <remoteAddress></remoteAddress>
+      <remotePort></remotePort>
+      <overrideLocalBinding>false</overrideLocalBinding>
+      <reconnectInterval>5000</reconnectInterval>
+      <receiveTimeout>0</receiveTimeout>
+      <bufferSize>65536</bufferSize>
+      <maxConnections>10</maxConnections>
+      <keepConnectionOpen>true</keepConnectionOpen>
+      <dataTypeBinary>false</dataTypeBinary>
+      <charsetEncoding>DEFAULT_ENCODING</charsetEncoding>
+      <respondOnNewConnection>0</respondOnNewConnection>
+      <responseAddress></responseAddress>
+      <responsePort></responsePort>
+    </properties>
+    <transformer version="4.5.2">
+      <elements>
+        <com.mirth.connect.plugins.javascriptstep.JavaScriptStep version="4.5.2">
+          <name></name>
+          <sequenceNumber>0</sequenceNumber>
+          <enabled>true</enabled>
+          <script>// =====================================================
+// HL7v2 ADT → FHIR R4 Bundle + Business Rules
+// =====================================================
+
+// === MAPPING TABLES ===
+var FACILITY_MAP = {
+    &apos;MGH&apos;:        {name: &apos;Massachusetts General Hospital&apos;, npi: &apos;1234567890&apos;},
+    &apos;BOSTON_MED&apos;: {name: &apos;Boston Medical Center&apos;, npi: &apos;0987654321&apos;},
+    &apos;CHILDREN&apos;:  {name: &apos;Boston Children\&apos;s Hospital&apos;, npi: &apos;1112223334&apos;},
+    &apos;BWH&apos;:       {name: &apos;Brigham and Women\&apos;s Hospital&apos;, npi: &apos;5556667778&apos;},
+    &apos;MAIN_HOSP&apos;: {name: &apos;Main Street Hospital&apos;, npi: &apos;9998887776&apos;}
+};
+
+var WARD_SERVICE_MAP = {
+    &apos;ICU&apos;:   {specialty: &apos;Critical Care Medicine&apos;, snomed: &apos;309904001&apos;},
+    &apos;CCU&apos;:   {specialty: &apos;Cardiology&apos;, snomed: &apos;309904001&apos;},
+    &apos;ER&apos;:    {specialty: &apos;Emergency Medicine&apos;, snomed: &apos;310000008&apos;},
+    &apos;SURG&apos;:  {specialty: &apos;General Surgery&apos;, snomed: &apos;394294004&apos;},
+    &apos;MED&apos;:   {specialty: &apos;Internal Medicine&apos;, snomed: &apos;394802001&apos;},
+    &apos;PEDS&apos;:  {specialty: &apos;Pediatrics&apos;, snomed: &apos;394537008&apos;},
+    &apos;ONCO&apos;:  {specialty: &apos;Oncology&apos;, snomed: &apos;394593009&apos;}
+};
+
+var PAYER_MAP = {
+    &apos;BCBS&apos;:    {name: &apos;Blue Cross Blue Shield&apos;, type: &apos;PPO&apos;},
+    &apos;AETNA&apos;:   {name: &apos;Aetna Health Plans&apos;, type: &apos;HMO&apos;},
+    &apos;UHC&apos;:     {name: &apos;UnitedHealthcare&apos;, type: &apos;PPO&apos;},
+    &apos;MCARE&apos;:   {name: &apos;Medicare&apos;, type: &apos;Medicare&apos;},
+    &apos;MCAID&apos;:   {name: &apos;MassHealth (Medicaid)&apos;, type: &apos;Medicaid&apos;},
+    &apos;SELF&apos;:    {name: &apos;Self Pay&apos;, type: &apos;Self&apos;}
+};
+
+var CRITICAL_DX = {
+    &apos;I21&apos;: {priority: &apos;STAT&apos;, alert: &apos;STEMI/NSTEMI Protocol&apos;, team: &apos;Cardiology&apos;},
+    &apos;I46&apos;: {priority: &apos;STAT&apos;, alert: &apos;Cardiac Arrest Protocol&apos;, team: &apos;Code Blue&apos;},
+    &apos;A41&apos;: {priority: &apos;URGENT&apos;, alert: &apos;Sepsis Bundle (SEP-1)&apos;, team: &apos;Infectious Disease&apos;},
+    &apos;I63&apos;: {priority: &apos;STAT&apos;, alert: &apos;Stroke Code&apos;, team: &apos;Neurology&apos;},
+    &apos;K35&apos;: {priority: &apos;URGENT&apos;, alert: &apos;Acute Abdomen&apos;, team: &apos;Surgery&apos;},
+    &apos;S72&apos;: {priority: &apos;URGENT&apos;, alert: &apos;Hip Fracture Protocol&apos;, team: &apos;Orthopedics&apos;},
+    &apos;J18&apos;: {priority: &apos;URGENT&apos;, alert: &apos;Pneumonia Bundle (PN-6)&apos;, team: &apos;Pulmonology&apos;},
+    &apos;E11&apos;: {priority: &apos;ROUTINE&apos;, alert: &apos;Diabetes Care Protocol&apos;, team: &apos;Endocrinology&apos;}
+};
+
+
+var ICD_TO_SNOMED = {
+    &apos;A41.9&apos;: {code: &apos;91302008&apos;,  display: &apos;Sepsis (disorder)&apos;},
+    &apos;I21.9&apos;: {code: &apos;22298006&apos;,  display: &apos;Myocardial infarction (disorder)&apos;},
+    &apos;J18.9&apos;: {code: &apos;233604007&apos;, display: &apos;Pneumonia (disorder)&apos;},
+    &apos;K35.80&apos;:{code: &apos;74400008&apos;,  display: &apos;Appendicitis (disorder)&apos;},
+    &apos;E11.9&apos;: {code: &apos;44054006&apos;,  display: &apos;Diabetes mellitus type 2 (disorder)&apos;},
+    &apos;I10&apos;:   {code: &apos;38341003&apos;,  display: &apos;Hypertensive disorder (disorder)&apos;},
+    &apos;R07.9&apos;: {code: &apos;29857009&apos;,  display: &apos;Chest pain (finding)&apos;},
+    &apos;I63.9&apos;: {code: &apos;230690007&apos;, display: &apos;Cerebrovascular accident (disorder)&apos;},
+    &apos;S52.501A&apos;:{code:&apos;263102004&apos;,display: &apos;Fracture of radius (disorder)&apos;},
+    &apos;S62.001A&apos;:{code:&apos;65966004&apos;, display: &apos;Fracture of wrist (disorder)&apos;},
+    &apos;J06.9&apos;: {code: &apos;54150009&apos;,  display: &apos;Upper respiratory infection (disorder)&apos;},
+    &apos;S72.001A&apos;:{code:&apos;5913000&apos;,  display: &apos;Fracture of neck of femur (disorder)&apos;}
+};
+
+// === LIVE TX TEST ===
+var txTestResult = &apos;NOT_TESTED&apos;;
+try {
+    var HC = Packages.org.apache.http.impl.client.HttpClients;
+    txTestResult = &apos;CLASS_FOUND: &apos; + HC;
+    var cl = HC.createDefault();
+    txTestResult = &apos;CLIENT_CREATED&apos;;
+    var hg = new Packages.org.apache.http.client.methods.HttpGet(&apos;https://tx.fhir.org/r4/CodeSystem/$lookup?system=http%3A%2F%2Fhl7.org%2Ffhir%2Fsid%2Ficd-10-cm&amp;code=A41.9&apos;);
+    hg.addHeader(&apos;Accept&apos;, &apos;application/fhir+json&apos;);
+    txTestResult = &apos;GET_CREATED&apos;;
+    var resp = cl.execute(hg);
+    txTestResult = &apos;EXECUTED: &apos; + resp.getStatusLine().getStatusCode();
+    var body = Packages.org.apache.http.util.EntityUtils.toString(resp.getEntity(), &apos;UTF-8&apos;);
+    txTestResult = &apos;BODY_LEN: &apos; + body.length;
+    resp.close();
+    cl.close();
+    var parsed = JSON.parse(body);
+    var params = parsed.parameter || [];
+    for (var pi = 0; pi &lt; params.length; pi++) {
+        if (params[pi].name == &apos;display&apos;) txTestResult = &apos;VALIDATED: &apos; + params[pi].valueString;
+    }
+} catch(txe) {
+    txTestResult = &apos;ERROR: &apos; + txe;
+}
+channelMap.put(&apos;txTestResult&apos;, txTestResult);
+
+var MARITAL_MAP = {&apos;S&apos;:&apos;Never Married&apos;,&apos;M&apos;:&apos;Married&apos;,&apos;D&apos;:&apos;Divorced&apos;,&apos;W&apos;:&apos;Widowed&apos;};
+
+// === EXTRACT FIELDS ===
+var facility = msg[&apos;MSH&apos;][&apos;MSH.4&apos;][&apos;MSH.4.1&apos;].toString();
+var mrn = msg[&apos;PID&apos;][&apos;PID.3&apos;][&apos;PID.3.1&apos;].toString();
+var lastName = msg[&apos;PID&apos;][&apos;PID.5&apos;][&apos;PID.5.1&apos;].toString();
+var firstName = msg[&apos;PID&apos;][&apos;PID.5&apos;][&apos;PID.5.2&apos;].toString();
+var dob = msg[&apos;PID&apos;][&apos;PID.7&apos;][&apos;PID.7.1&apos;].toString();
+var gender = msg[&apos;PID&apos;][&apos;PID.8&apos;][&apos;PID.8.1&apos;].toString();
+var street = msg[&apos;PID&apos;][&apos;PID.11&apos;][&apos;PID.11.1&apos;].toString();
+var city = msg[&apos;PID&apos;][&apos;PID.11&apos;][&apos;PID.11.3&apos;].toString();
+var state = msg[&apos;PID&apos;][&apos;PID.11&apos;][&apos;PID.11.4&apos;].toString();
+var zip = msg[&apos;PID&apos;][&apos;PID.11&apos;][&apos;PID.11.5&apos;].toString();
+var phone = msg[&apos;PID&apos;][&apos;PID.13&apos;][&apos;PID.13.1&apos;].toString();
+var marital = msg[&apos;PID&apos;][&apos;PID.16&apos;][&apos;PID.16.1&apos;].toString();
+
+var patientClass = msg[&apos;PV1&apos;][&apos;PV1.2&apos;][&apos;PV1.2.1&apos;].toString();
+var ward = msg[&apos;PV1&apos;][&apos;PV1.3&apos;][&apos;PV1.3.1&apos;].toString();
+var room = msg[&apos;PV1&apos;][&apos;PV1.3&apos;][&apos;PV1.3.2&apos;].toString();
+var bed = msg[&apos;PV1&apos;][&apos;PV1.3&apos;][&apos;PV1.3.3&apos;].toString();
+var admitType = msg[&apos;PV1&apos;][&apos;PV1.4&apos;][&apos;PV1.4.1&apos;].toString();
+var attId = msg[&apos;PV1&apos;][&apos;PV1.7&apos;][&apos;PV1.7.1&apos;].toString();
+var attLast = msg[&apos;PV1&apos;][&apos;PV1.7&apos;][&apos;PV1.7.2&apos;].toString();
+var attFirst = msg[&apos;PV1&apos;][&apos;PV1.7&apos;][&apos;PV1.7.3&apos;].toString();
+var visitNum = msg[&apos;PV1&apos;][&apos;PV1.19&apos;][&apos;PV1.19.1&apos;].toString();
+
+var dx = &apos;&apos;, dxDesc = &apos;&apos;, dxSys = &apos;&apos;;
+try { dx = msg[&apos;DG1&apos;][&apos;DG1.3&apos;][&apos;DG1.3.1&apos;].toString(); dxDesc = msg[&apos;DG1&apos;][&apos;DG1.3&apos;][&apos;DG1.3.2&apos;].toString(); dxSys = msg[&apos;DG1&apos;][&apos;DG1.3&apos;][&apos;DG1.3.3&apos;].toString(); } catch(e) {}
+
+var insId = &apos;&apos;, insName = &apos;&apos;, grpNum = &apos;&apos;;
+try { insId = msg[&apos;IN1&apos;][&apos;IN1.3&apos;][&apos;IN1.3.1&apos;].toString(); insName = msg[&apos;IN1&apos;][&apos;IN1.4&apos;][&apos;IN1.4.1&apos;].toString(); grpNum = msg[&apos;IN1&apos;][&apos;IN1.8&apos;][&apos;IN1.8.1&apos;].toString(); } catch(e) {}
+
+// === APPLY MAPPINGS ===
+var gMap = {&apos;M&apos;:&apos;male&apos;,&apos;F&apos;:&apos;female&apos;,&apos;O&apos;:&apos;other&apos;};
+var fGender = gMap[gender] || &apos;unknown&apos;;
+var cMap = {&apos;I&apos;:{c:&apos;IMP&apos;,d:&apos;inpatient&apos;},&apos;O&apos;:{c:&apos;AMB&apos;,d:&apos;ambulatory&apos;},&apos;E&apos;:{c:&apos;EMER&apos;,d:&apos;emergency&apos;}};
+var encClass = cMap[patientClass] || {c:&apos;AMB&apos;,d:&apos;ambulatory&apos;};
+var aMap = {&apos;E&apos;:&apos;Emergency&apos;,&apos;R&apos;:&apos;Routine&apos;,&apos;U&apos;:&apos;Urgent&apos;,&apos;N&apos;:&apos;Newborn&apos;};
+var fAdmit = aMap[admitType] || admitType;
+var fac = FACILITY_MAP[facility] || {name:facility,npi:&apos;UNKNOWN&apos;};
+var svc = WARD_SERVICE_MAP[ward.toUpperCase()] || {specialty:&apos;General&apos;,snomed:&apos;394802001&apos;};
+var pay = insId ? (PAYER_MAP[insId.toUpperCase()] || {name:insName||insId,type:&apos;Unknown&apos;}) : null;
+var fDob = dob.length &gt;= 8 ? dob.substring(0,4)+&apos;-&apos;+dob.substring(4,6)+&apos;-&apos;+dob.substring(6,8) : &apos;&apos;;
+var age = dob.length &gt;= 8 ? new Date().getFullYear() - parseInt(dob.substring(0,4)) : 0;
+var fDxSys = dxSys == &apos;ICD10&apos; ? &apos;http://hl7.org/fhir/sid/icd-10-cm&apos; : &apos;http://snomed.info/sct&apos;;
+
+// === BUSINESS RULES ===
+var alerts = [];
+var flags = [];
+var notifs = [];
+
+if (dx) {
+    var prefix = dx.substring(0,3);
+    var crit = CRITICAL_DX[prefix];
+    if (crit) { alerts.push({priority:crit.priority, alert:crit.alert, team:crit.team, code:dx}); }
+}
+
+if (age &gt;= 65 &amp;&amp; patientClass == &apos;I&apos;) {
+    flags.push({code:&apos;geriatric-screen&apos;, display:&apos;Geriatric Screening Required&apos;, reason:&apos;Inpatient age &gt;= 65 (age: &apos;+age+&apos;)&apos;});
+    notifs.push(&apos;Geriatric consult auto-ordered&apos;);
+}
+if (age &lt; 18) { flags.push({code:&apos;pediatric&apos;, display:&apos;Pediatric Patient&apos;, reason:&apos;Age &lt; 18&apos;}); }
+
+if (ward.toUpperCase().indexOf(&apos;ICU&apos;) &gt;= 0) {
+    flags.push({code:&apos;icu-admit&apos;, display:&apos;ICU Admission&apos;, reason:&apos;Ward: &apos;+ward});
+    notifs.push(&apos;ICU bed management + pharmacy notified&apos;);
+}
+
+if (!pay) { flags.push({code:&apos;no-insurance&apos;, display:&apos;Insurance Missing&apos;, reason:&apos;No IN1 segment&apos;}); notifs.push(&apos;Financial counseling referral&apos;); }
+
+if (dx &amp;&amp; dx.substring(0,3) == &apos;A41&apos;) {
+    flags.push({code:&apos;sep-1&apos;, display:&apos;SEP-1 Sepsis Bundle Required&apos;, reason:&apos;DX: &apos;+dx});
+    notifs.push(&apos;SEP-1 timer: Lactate 3h, cultures before ABX, broad-spectrum ABX 1h&apos;);
+}
+
+if (age &gt;= 65 &amp;&amp; dx &amp;&amp; dx.substring(0,3) == &apos;S72&apos;) {
+    flags.push({code:&apos;hip-fx-elderly&apos;, display:&apos;Elderly Hip Fracture Fast-Track&apos;, reason:&apos;S72.x + age &gt;=65&apos;});
+    alerts.push({priority:&apos;STAT&apos;, alert:&apos;Target OR within 24h&apos;, team:&apos;Ortho+Geriatrics&apos;, code:dx});
+}
+
+// === BUILD FHIR BUNDLE ===
+var patient = {resourceType:&apos;Patient&apos;,id:mrn,meta:{profile:[&apos;http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient&apos;]},identifier:[{use:&apos;usual&apos;,type:{coding:[{system:&apos;http://terminology.hl7.org/CodeSystem/v2-0203&apos;,code:&apos;MR&apos;}]},system:&apos;urn:oid:2.16.840.1.113883.1.13.&apos;+fac.npi,value:mrn}],active:true,name:[{use:&apos;official&apos;,family:lastName,given:[firstName]}],gender:fGender,birthDate:fDob,address:[{use:&apos;home&apos;,line:[street],city:city,state:state,postalCode:zip,country:&apos;US&apos;}],telecom:[{system:&apos;phone&apos;,value:phone,use:&apos;home&apos;}]};
+if (MARITAL_MAP[marital]) patient.maritalStatus = {coding:[{system:&apos;http://terminology.hl7.org/CodeSystem/v3-MaritalStatus&apos;,code:marital,display:MARITAL_MAP[marital]}]};
+
+var org = {resourceType:&apos;Organization&apos;,id:&apos;org-&apos;+facility,identifier:[{system:&apos;http://hl7.org/fhir/sid/us-npi&apos;,value:fac.npi}],name:fac.name};
+var pract = {resourceType:&apos;Practitioner&apos;,id:&apos;pract-&apos;+attId,identifier:[{system:&apos;http://hospital.org/practitioners&apos;,value:attId}],name:[{family:attLast,given:[attFirst]}],qualification:[{code:{coding:[{system:&apos;http://snomed.info/sct&apos;,code:svc.snomed,display:svc.specialty}]}}]};
+var enc = {resourceType:&apos;Encounter&apos;,id:&apos;enc-&apos;+(visitNum||mrn),status:&apos;in-progress&apos;,&apos;class&apos;:{system:&apos;http://terminology.hl7.org/CodeSystem/v3-ActCode&apos;,code:encClass.c,display:encClass.d},type:[{coding:[{system:&apos;http://terminology.hl7.org/CodeSystem/admit-type&apos;,code:admitType,display:fAdmit}]}],serviceType:{coding:[{system:&apos;http://snomed.info/sct&apos;,code:svc.snomed,display:svc.specialty}]},subject:{reference:&apos;Patient/&apos;+mrn,display:firstName+&apos; &apos;+lastName},participant:[{individual:{reference:&apos;Practitioner/pract-&apos;+attId,display:attFirst+&apos; &apos;+attLast}}],location:[{location:{display:ward+&apos; Room &apos;+room+&apos; Bed &apos;+bed},status:&apos;active&apos;}],serviceProvider:{reference:&apos;Organization/org-&apos;+facility,display:fac.name}};
+
+var bundle = {resourceType:&apos;Bundle&apos;,type:&apos;transaction&apos;,timestamp:new Date().toISOString(),entry:[{resource:patient,request:{method:&apos;PUT&apos;,url:&apos;Patient/&apos;+mrn}},{resource:org,request:{method:&apos;PUT&apos;,url:&apos;Organization/org-&apos;+facility}},{resource:pract,request:{method:&apos;PUT&apos;,url:&apos;Practitioner/pract-&apos;+attId}},{resource:enc,request:{method:&apos;PUT&apos;,url:&apos;Encounter/enc-&apos;+(visitNum||mrn)}}]};
+
+if (dx) {
+    var cond = {resourceType:&apos;Condition&apos;,id:&apos;cond-&apos;+mrn+&apos;-&apos;+dx.replace(/\./g,&apos;-&apos;),clinicalStatus:{coding:[{system:&apos;http://terminology.hl7.org/CodeSystem/condition-clinical&apos;,code:&apos;active&apos;}]},code:{coding:[{system:fDxSys,code:dx,display:dxDesc}].concat(ICD_TO_SNOMED[dx] ? [{system:&apos;http://snomed.info/sct&apos;,code:ICD_TO_SNOMED[dx].code,display:ICD_TO_SNOMED[dx].display}] : []),text:dxDesc},subject:{reference:&apos;Patient/&apos;+mrn},encounter:{reference:&apos;Encounter/enc-&apos;+(visitNum||mrn)}};
+    bundle.entry.push({resource:cond,request:{method:&apos;PUT&apos;,url:&apos;Condition/cond-&apos;+mrn+&apos;-&apos;+dx.replace(/\./g,&apos;-&apos;)}});
+}
+
+if (pay) {
+    var cov = {resourceType:&apos;Coverage&apos;,id:&apos;cov-&apos;+mrn,status:&apos;active&apos;,beneficiary:{reference:&apos;Patient/&apos;+mrn},payor:[{display:pay.name}],&apos;class&apos;:[{type:{coding:[{code:&apos;group&apos;}]},value:grpNum,name:pay.name},{type:{coding:[{code:&apos;plan&apos;}]},value:pay.type}]};
+    bundle.entry.push({resource:cov,request:{method:&apos;PUT&apos;,url:&apos;Coverage/cov-&apos;+mrn}});
+}
+
+for (var i=0;i&lt;flags.length;i++) {
+    var fl = {resourceType:&apos;Flag&apos;,id:&apos;flag-&apos;+mrn+&apos;-&apos;+flags[i].code,status:&apos;active&apos;,code:{coding:[{system:&apos;http://hospital.org/flags&apos;,code:flags[i].code,display:flags[i].display}],text:flags[i].display+&apos; (&apos;+flags[i].reason+&apos;)&apos;},subject:{reference:&apos;Patient/&apos;+mrn}};
+    bundle.entry.push({resource:fl,request:{method:&apos;PUT&apos;,url:&apos;Flag/flag-&apos;+mrn+&apos;-&apos;+flags[i].code}});
+}
+
+var rules = {alerts:alerts,flags:flags,notifications:notifs,mappings:{facility:facility+&apos; -&gt; &apos;+fac.name,ward:ward+&apos; -&gt; &apos;+svc.specialty,gender:gender+&apos; -&gt; &apos;+fGender,class:patientClass+&apos; -&gt; &apos;+encClass.d,admit:admitType+&apos; -&gt; &apos;+fAdmit,insurance:(insId||&apos;NONE&apos;)+&apos; -&gt; &apos;+(pay?pay.name:&apos;Not provided&apos;),snomedMapping:(dx &amp;&amp; ICD_TO_SNOMED[dx]) ? dx+&apos; -&gt; SNOMED &apos;+ICD_TO_SNOMED[dx].code+&apos; (&apos;+ICD_TO_SNOMED[dx].display+&apos;)&apos; : &apos;No SNOMED mapping&apos;,marital:marital+&apos; -&gt; &apos;+(MARITAL_MAP[marital]||&apos;N/A&apos;)}};
+
+channelMap.put(&apos;fhirBundle&apos;, JSON.stringify(bundle, null, 2));
+channelMap.put(&apos;businessRules&apos;, JSON.stringify(rules, null, 2));
+channelMap.put(&apos;resourceCount&apos;, bundle.entry.length.toString());
+channelMap.put(&apos;alertCount&apos;, alerts.length.toString());
+channelMap.put(&apos;flagCount&apos;, flags.length.toString());
+
+logger.info(&apos;Bundle: &apos;+bundle.entry.length+&apos; resources, &apos;+alerts.length+&apos; alerts, &apos;+flags.length+&apos; flags | &apos;+firstName+&apos; &apos;+lastName);</script>
+        </com.mirth.connect.plugins.javascriptstep.JavaScriptStep>
+      </elements>
+      <inboundTemplate encoding="base64"></inboundTemplate>
+      <outboundTemplate encoding="base64"></outboundTemplate>
+      <inboundDataType>HL7V2</inboundDataType>
+      <outboundDataType>HL7V2</outboundDataType>
+      <inboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+        <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+          <handleRepetitions>true</handleRepetitions>
+          <handleSubcomponents>true</handleSubcomponents>
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <stripNamespaces>false</stripNamespaces>
+          <segmentDelimiter>\r</segmentDelimiter>
+          <convertLineBreaks>true</convertLineBreaks>
+        </serializationProperties>
+        <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <segmentDelimiter>\r</segmentDelimiter>
+        </deserializationProperties>
+        <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+          <splitType>MSH_Segment</splitType>
+          <batchScript></batchScript>
+        </batchProperties>
+        <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+          <segmentDelimiter>\r</segmentDelimiter>
+          <successfulACKCode>AA</successfulACKCode>
+          <successfulACKMessage></successfulACKMessage>
+          <errorACKCode>AE</errorACKCode>
+          <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+          <rejectedACKCode>AR</rejectedACKCode>
+          <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+          <msh15ACKAccept>false</msh15ACKAccept>
+          <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+        </responseGenerationProperties>
+        <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+          <successfulACKCode>AA,CA</successfulACKCode>
+          <errorACKCode>AE,CE</errorACKCode>
+          <rejectedACKCode>AR,CR</rejectedACKCode>
+          <validateMessageControlId>true</validateMessageControlId>
+          <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+          <originalIdMapVariable></originalIdMapVariable>
+        </responseValidationProperties>
+      </inboundProperties>
+      <outboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+        <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+          <handleRepetitions>true</handleRepetitions>
+          <handleSubcomponents>true</handleSubcomponents>
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <stripNamespaces>false</stripNamespaces>
+          <segmentDelimiter>\r</segmentDelimiter>
+          <convertLineBreaks>true</convertLineBreaks>
+        </serializationProperties>
+        <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <segmentDelimiter>\r</segmentDelimiter>
+        </deserializationProperties>
+        <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+          <splitType>MSH_Segment</splitType>
+          <batchScript></batchScript>
+        </batchProperties>
+        <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+          <segmentDelimiter>\r</segmentDelimiter>
+          <successfulACKCode>AA</successfulACKCode>
+          <successfulACKMessage></successfulACKMessage>
+          <errorACKCode>AE</errorACKCode>
+          <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+          <rejectedACKCode>AR</rejectedACKCode>
+          <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+          <msh15ACKAccept>false</msh15ACKAccept>
+          <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+        </responseGenerationProperties>
+        <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+          <successfulACKCode>AA,CA</successfulACKCode>
+          <errorACKCode>AE,CE</errorACKCode>
+          <rejectedACKCode>AR,CR</rejectedACKCode>
+          <validateMessageControlId>true</validateMessageControlId>
+          <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+          <originalIdMapVariable></originalIdMapVariable>
+        </responseValidationProperties>
+      </outboundProperties>
+    </transformer>
+    <filter version="4.5.2">
+      <elements/>
+    </filter>
+    <transportName>TCP Listener</transportName>
+    <mode>SOURCE</mode>
+    <enabled>true</enabled>
+    <waitForPrevious>true</waitForPrevious>
+  </sourceConnector>
+  <destinationConnectors>
+    <connector version="4.5.2">
+      <metaDataId>1</metaDataId>
+      <name>Destination 1</name>
+      <properties class="com.mirth.connect.connectors.vm.VmDispatcherProperties" version="4.5.2">
+        <pluginProperties/>
+        <destinationConnectorProperties version="4.5.2">
+          <queueEnabled>false</queueEnabled>
+          <sendFirst>false</sendFirst>
+          <retryIntervalMillis>10000</retryIntervalMillis>
+          <regenerateTemplate>false</regenerateTemplate>
+          <retryCount>0</retryCount>
+          <rotate>false</rotate>
+          <includeFilterTransformer>false</includeFilterTransformer>
+          <threadCount>1</threadCount>
+          <threadAssignmentVariable></threadAssignmentVariable>
+          <validateResponse>false</validateResponse>
+          <resourceIds class="linked-hash-map">
+            <entry>
+              <string>Default Resource</string>
+              <string>[Default Resource]</string>
+            </entry>
+          </resourceIds>
+          <queueBufferSize>1000</queueBufferSize>
+          <reattachAttachments>true</reattachAttachments>
+        </destinationConnectorProperties>
+        <channelId>none</channelId>
+        <channelTemplate>${message.encodedData}</channelTemplate>
+        <mapVariables/>
+      </properties>
+      <transformer version="4.5.2">
+        <elements/>
+        <inboundDataType>HL7V2</inboundDataType>
+        <outboundDataType>HL7V2</outboundDataType>
+        <inboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+          <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+            <handleRepetitions>true</handleRepetitions>
+            <handleSubcomponents>true</handleSubcomponents>
+            <useStrictParser>false</useStrictParser>
+            <useStrictValidation>false</useStrictValidation>
+            <stripNamespaces>false</stripNamespaces>
+            <segmentDelimiter>\r</segmentDelimiter>
+            <convertLineBreaks>true</convertLineBreaks>
+          </serializationProperties>
+          <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+            <useStrictParser>false</useStrictParser>
+            <useStrictValidation>false</useStrictValidation>
+            <segmentDelimiter>\r</segmentDelimiter>
+          </deserializationProperties>
+          <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+            <splitType>MSH_Segment</splitType>
+            <batchScript></batchScript>
+          </batchProperties>
+          <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+            <segmentDelimiter>\r</segmentDelimiter>
+            <successfulACKCode>AA</successfulACKCode>
+            <successfulACKMessage></successfulACKMessage>
+            <errorACKCode>AE</errorACKCode>
+            <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+            <rejectedACKCode>AR</rejectedACKCode>
+            <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+            <msh15ACKAccept>false</msh15ACKAccept>
+            <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+          </responseGenerationProperties>
+          <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+            <successfulACKCode>AA,CA</successfulACKCode>
+            <errorACKCode>AE,CE</errorACKCode>
+            <rejectedACKCode>AR,CR</rejectedACKCode>
+            <validateMessageControlId>true</validateMessageControlId>
+            <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+            <originalIdMapVariable></originalIdMapVariable>
+          </responseValidationProperties>
+        </inboundProperties>
+        <outboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+          <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+            <handleRepetitions>true</handleRepetitions>
+            <handleSubcomponents>true</handleSubcomponents>
+            <useStrictParser>false</useStrictParser>
+            <useStrictValidation>false</useStrictValidation>
+            <stripNamespaces>false</stripNamespaces>
+            <segmentDelimiter>\r</segmentDelimiter>
+            <convertLineBreaks>true</convertLineBreaks>
+          </serializationProperties>
+          <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+            <useStrictParser>false</useStrictParser>
+            <useStrictValidation>false</useStrictValidation>
+            <segmentDelimiter>\r</segmentDelimiter>
+          </deserializationProperties>
+          <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+            <splitType>MSH_Segment</splitType>
+            <batchScript></batchScript>
+          </batchProperties>
+          <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+            <segmentDelimiter>\r</segmentDelimiter>
+            <successfulACKCode>AA</successfulACKCode>
+            <successfulACKMessage></successfulACKMessage>
+            <errorACKCode>AE</errorACKCode>
+            <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+            <rejectedACKCode>AR</rejectedACKCode>
+            <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+            <msh15ACKAccept>false</msh15ACKAccept>
+            <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+          </responseGenerationProperties>
+          <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+            <successfulACKCode>AA,CA</successfulACKCode>
+            <errorACKCode>AE,CE</errorACKCode>
+            <rejectedACKCode>AR,CR</rejectedACKCode>
+            <validateMessageControlId>true</validateMessageControlId>
+            <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+            <originalIdMapVariable></originalIdMapVariable>
+          </responseValidationProperties>
+        </outboundProperties>
+      </transformer>
+      <responseTransformer version="4.5.2">
+        <elements/>
+        <inboundDataType>HL7V2</inboundDataType>
+        <outboundDataType>HL7V2</outboundDataType>
+        <inboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+          <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+            <handleRepetitions>true</handleRepetitions>
+            <handleSubcomponents>true</handleSubcomponents>
+            <useStrictParser>false</useStrictParser>
+            <useStrictValidation>false</useStrictValidation>
+            <stripNamespaces>false</stripNamespaces>
+            <segmentDelimiter>\r</segmentDelimiter>
+            <convertLineBreaks>true</convertLineBreaks>
+          </serializationProperties>
+          <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+            <useStrictParser>false</useStrictParser>
+            <useStrictValidation>false</useStrictValidation>
+            <segmentDelimiter>\r</segmentDelimiter>
+          </deserializationProperties>
+          <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+            <splitType>MSH_Segment</splitType>
+            <batchScript></batchScript>
+          </batchProperties>
+          <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+            <segmentDelimiter>\r</segmentDelimiter>
+            <successfulACKCode>AA</successfulACKCode>
+            <successfulACKMessage></successfulACKMessage>
+            <errorACKCode>AE</errorACKCode>
+            <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+            <rejectedACKCode>AR</rejectedACKCode>
+            <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+            <msh15ACKAccept>false</msh15ACKAccept>
+            <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+          </responseGenerationProperties>
+          <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+            <successfulACKCode>AA,CA</successfulACKCode>
+            <errorACKCode>AE,CE</errorACKCode>
+            <rejectedACKCode>AR,CR</rejectedACKCode>
+            <validateMessageControlId>true</validateMessageControlId>
+            <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+            <originalIdMapVariable></originalIdMapVariable>
+          </responseValidationProperties>
+        </inboundProperties>
+        <outboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+          <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+            <handleRepetitions>true</handleRepetitions>
+            <handleSubcomponents>true</handleSubcomponents>
+            <useStrictParser>false</useStrictParser>
+            <useStrictValidation>false</useStrictValidation>
+            <stripNamespaces>false</stripNamespaces>
+            <segmentDelimiter>\r</segmentDelimiter>
+            <convertLineBreaks>true</convertLineBreaks>
+          </serializationProperties>
+          <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+            <useStrictParser>false</useStrictParser>
+            <useStrictValidation>false</useStrictValidation>
+            <segmentDelimiter>\r</segmentDelimiter>
+          </deserializationProperties>
+          <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+            <splitType>MSH_Segment</splitType>
+            <batchScript></batchScript>
+          </batchProperties>
+          <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+            <segmentDelimiter>\r</segmentDelimiter>
+            <successfulACKCode>AA</successfulACKCode>
+            <successfulACKMessage></successfulACKMessage>
+            <errorACKCode>AE</errorACKCode>
+            <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+            <rejectedACKCode>AR</rejectedACKCode>
+            <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+            <msh15ACKAccept>false</msh15ACKAccept>
+            <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+          </responseGenerationProperties>
+          <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+            <successfulACKCode>AA,CA</successfulACKCode>
+            <errorACKCode>AE,CE</errorACKCode>
+            <rejectedACKCode>AR,CR</rejectedACKCode>
+            <validateMessageControlId>true</validateMessageControlId>
+            <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+            <originalIdMapVariable></originalIdMapVariable>
+          </responseValidationProperties>
+        </outboundProperties>
+      </responseTransformer>
+      <filter version="4.5.2">
+        <elements/>
+      </filter>
+      <transportName>Channel Writer</transportName>
+      <mode>DESTINATION</mode>
+      <enabled>true</enabled>
+      <waitForPrevious>true</waitForPrevious>
+    </connector>
+  </destinationConnectors>
+  <preprocessingScript>// Modify the message variable below to pre process data
+return message;</preprocessingScript>
+  <postprocessingScript>// This script executes once after a message has been processed
+// Responses returned from here will be stored as &quot;Postprocessor&quot; in the response map
+return;</postprocessingScript>
+  <deployScript>// This script executes once when the channel is deployed
+// You only have access to the globalMap and globalChannelMap here to persist data
+return;</deployScript>
+  <undeployScript>// This script executes once when the channel is undeployed
+// You only have access to the globalMap and globalChannelMap here to persist data
+return;</undeployScript>
+  <properties version="4.5.2">
+    <clearGlobalChannelMap>true</clearGlobalChannelMap>
+    <messageStorageMode>DEVELOPMENT</messageStorageMode>
+    <encryptData>false</encryptData>
+    <encryptAttachments>false</encryptAttachments>
+    <encryptCustomMetaData>false</encryptCustomMetaData>
+    <removeContentOnCompletion>false</removeContentOnCompletion>
+    <removeOnlyFilteredOnCompletion>false</removeOnlyFilteredOnCompletion>
+    <removeAttachmentsOnCompletion>false</removeAttachmentsOnCompletion>
+    <initialState>STARTED</initialState>
+    <storeAttachments>true</storeAttachments>
+    <metaDataColumns>
+      <metaDataColumn>
+        <name>SOURCE</name>
+        <type>STRING</type>
+        <mappingName>mirth_source</mappingName>
+      </metaDataColumn>
+      <metaDataColumn>
+        <name>TYPE</name>
+        <type>STRING</type>
+        <mappingName>mirth_type</mappingName>
+      </metaDataColumn>
+    </metaDataColumns>
+    <attachmentProperties version="4.5.2">
+      <type>None</type>
+      <properties/>
+    </attachmentProperties>
+    <resourceIds class="linked-hash-map">
+      <entry>
+        <string>Default Resource</string>
+        <string>[Default Resource]</string>
+      </entry>
+    </resourceIds>
+  </properties>
+  <exportData>
+    <metadata>
+      <enabled>true</enabled>
+    </metadata>
+    <dependentIds/>
+    <dependencyIds/>
+    <channelTags/>
+  </exportData>
+</channel>
