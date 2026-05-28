@@ -1,0 +1,84 @@
+# Recipe #37 — Promtail config: tails Mirth log files and ships to Loki.
+#
+# Mirth's log4j2 writes:
+#   mirth.log                — server log (everything)
+#   mirth-channels.log       — per-channel log (created by Recipe #37's log4j2.xml)
+#   mirth-error.log          — ERROR-and-above log
+#
+# Labels emitted:
+#   job          = mirth
+#   stream       = server | channel | error
+#   channel_id   = parsed from log line (channel logs only)
+#   level        = DEBUG/INFO/WARN/ERROR/FATAL
+#
+# Tested on: Promtail 3.0
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: mirth-server
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job:    mirth
+          stream: server
+          __path__: /mnt/mirth/logs/mirth.log*
+    pipeline_stages:
+      # Mirth log format:
+      #   2026-05-28 12:00:01,233 INFO  [pool-1-thread-1] (com.mirth.connect...) Message text
+      - regex:
+          expression: '^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s+(?P<level>[A-Z]+)\s+\[(?P<thread>[^\]]+)\]\s+\((?P<logger>[^)]+)\)\s*(?P<message>.*)$'
+      - timestamp:
+          source: ts
+          format: '2006-01-02 15:04:05,000'
+      - labels:
+          level:
+      - output:
+          source: message
+
+  - job_name: mirth-channel
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job:    mirth
+          stream: channel
+          __path__: /mnt/mirth/logs/mirth-channels.log*
+    pipeline_stages:
+      # Custom layout we ask log4j2.xml to write:
+      #   2026-05-28 12:00:01,233 INFO  channel=abcd-1234 msg=12345 (logger) Message text
+      - regex:
+          expression: '^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s+(?P<level>[A-Z]+)\s+channel=(?P<channel_id>[^\s]+)\s+(?:msg=(?P<message_id>[^\s]+)\s+)?(?:\((?P<logger>[^)]+)\)\s*)?(?P<message>.*)$'
+      - timestamp:
+          source: ts
+          format: '2006-01-02 15:04:05,000'
+      - labels:
+          level:
+          channel_id:
+      - output:
+          source: message
+
+  - job_name: mirth-error
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job:    mirth
+          stream: error
+          __path__: /mnt/mirth/logs/mirth-error.log*
+    pipeline_stages:
+      - regex:
+          expression: '^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})\s+(?P<level>[A-Z]+)\s+\[(?P<thread>[^\]]+)\]\s+\((?P<logger>[^)]+)\)\s*(?P<message>.*)$'
+      - timestamp:
+          source: ts
+          format: '2006-01-02 15:04:05,000'
+      - labels:
+          level:
+      - output:
+          source: message

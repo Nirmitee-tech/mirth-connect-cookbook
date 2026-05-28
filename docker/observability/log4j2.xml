@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Recipe #37 — log4j2 config for Mirth Connect that emits a channel-aware log file
+  consumed by Promtail (promtail-config.yaml).
+
+  Drop this in place of /opt/connect/conf/log4j2.properties (rename to log4j2.xml
+  and restart). The 'mirth-channels.log' appender uses the ThreadContext-bound
+  channelId/messageId variables that Mirth already populates per message
+  (com.mirth.connect.server.MirthLogger).
+
+  Tested on: Mirth Connect 4.5.2 (which ships log4j 2.x)
+  Author: Nirmitee.io
+  License: MIT
+-->
+<Configuration status="WARN">
+
+  <Properties>
+    <Property name="LOG_DIR">${env:MIRTH_LOG_DIR:-/opt/connect/logs}</Property>
+    <Property name="PATTERN_SERVER">%d{ISO8601} %-5p [%t] (%c) %m%n</Property>
+    <Property name="PATTERN_CHANNEL">%d{ISO8601} %-5p channel=%X{channelId:-unknown} msg=%X{messageId:-?} (%c) %m%n</Property>
+  </Properties>
+
+  <Appenders>
+
+    <Console name="STDOUT" target="SYSTEM_OUT">
+      <PatternLayout pattern="${PATTERN_SERVER}"/>
+    </Console>
+
+    <RollingFile name="ServerLog"
+                 fileName="${LOG_DIR}/mirth.log"
+                 filePattern="${LOG_DIR}/mirth.log.%d{yyyy-MM-dd}.%i">
+      <PatternLayout pattern="${PATTERN_SERVER}"/>
+      <Policies>
+        <TimeBasedTriggeringPolicy interval="1"/>
+        <SizeBasedTriggeringPolicy size="100MB"/>
+      </Policies>
+      <DefaultRolloverStrategy max="14"/>
+    </RollingFile>
+
+    <RollingFile name="ChannelLog"
+                 fileName="${LOG_DIR}/mirth-channels.log"
+                 filePattern="${LOG_DIR}/mirth-channels.log.%d{yyyy-MM-dd}.%i">
+      <PatternLayout pattern="${PATTERN_CHANNEL}"/>
+      <Policies>
+        <TimeBasedTriggeringPolicy interval="1"/>
+        <SizeBasedTriggeringPolicy size="200MB"/>
+      </Policies>
+      <DefaultRolloverStrategy max="14"/>
+    </RollingFile>
+
+    <RollingFile name="ErrorLog"
+                 fileName="${LOG_DIR}/mirth-error.log"
+                 filePattern="${LOG_DIR}/mirth-error.log.%d{yyyy-MM-dd}.%i">
+      <PatternLayout pattern="${PATTERN_SERVER}"/>
+      <ThresholdFilter level="ERROR" onMatch="ACCEPT" onMismatch="DENY"/>
+      <Policies>
+        <TimeBasedTriggeringPolicy interval="1"/>
+        <SizeBasedTriggeringPolicy size="50MB"/>
+      </Policies>
+      <DefaultRolloverStrategy max="30"/>
+    </RollingFile>
+
+  </Appenders>
+
+  <Loggers>
+
+    <!-- Channel-scoped logger: anything written via logger.info() inside a
+         transformer / filter / source script gets the channelId/messageId
+         from ThreadContext. -->
+    <Logger name="com.mirth.connect.connectors" level="INFO" additivity="true">
+      <AppenderRef ref="ChannelLog"/>
+    </Logger>
+    <Logger name="com.mirth.connect.donkey" level="INFO" additivity="true">
+      <AppenderRef ref="ChannelLog"/>
+    </Logger>
+    <Logger name="userspace.channel" level="INFO" additivity="true">
+      <AppenderRef ref="ChannelLog"/>
+    </Logger>
+
+    <Root level="INFO">
+      <AppenderRef ref="STDOUT"/>
+      <AppenderRef ref="ServerLog"/>
+      <AppenderRef ref="ErrorLog"/>
+    </Root>
+
+  </Loggers>
+</Configuration>

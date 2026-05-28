@@ -1,0 +1,376 @@
+<channel version="4.5.2">
+  <id>11111111-1111-1111-1111-111111111111</id>
+  <nextMetaDataId>2</nextMetaDataId>
+  <name>Epic Bridges ADT Inbound</name>
+  <description>Epic Bridges -> Mirth ADT inbound. Handles A28/A31 dedup, PV1-2 patient class, custom ZPV/ZIN segments. Emits FHIR Bundle to channelMap.fhirBundle.</description>
+  <revision>1</revision>
+  <sourceConnector version="4.5.2">
+    <metaDataId>0</metaDataId>
+    <name>sourceConnector</name>
+    <properties class="com.mirth.connect.connectors.tcp.TcpReceiverProperties" version="4.5.2">
+      <pluginProperties/>
+      <listenerConnectorProperties version="4.5.2">
+        <host>0.0.0.0</host>
+        <port>6701</port>
+      </listenerConnectorProperties>
+      <sourceConnectorProperties version="4.5.2">
+        <responseVariable>Auto-generate (After source transformer)</responseVariable>
+        <respondAfterProcessing>true</respondAfterProcessing>
+        <processBatch>false</processBatch>
+        <firstResponse>true</firstResponse>
+        <processingThreads>4</processingThreads>
+        <resourceIds class="linked-hash-map">
+          <entry>
+            <string>Default Resource</string>
+            <string>[Default Resource]</string>
+          </entry>
+        </resourceIds>
+        <queueBufferSize>1000</queueBufferSize>
+      </sourceConnectorProperties>
+      <transmissionModeProperties class="com.mirth.connect.plugins.mllpmode.MLLPModeProperties">
+        <pluginPointName>MLLP</pluginPointName>
+        <startOfMessageBytes>0B</startOfMessageBytes>
+        <endOfMessageBytes>1C0D</endOfMessageBytes>
+        <useMLLPv2>false</useMLLPv2>
+        <ackBytes>06</ackBytes>
+        <nackBytes>15</nackBytes>
+        <maxRetries>2</maxRetries>
+      </transmissionModeProperties>
+      <serverMode>true</serverMode>
+      <reconnectInterval>5000</reconnectInterval>
+      <receiveTimeout>0</receiveTimeout>
+      <bufferSize>65536</bufferSize>
+      <maxConnections>20</maxConnections>
+      <keepConnectionOpen>true</keepConnectionOpen>
+      <dataTypeBinary>false</dataTypeBinary>
+      <charsetEncoding>DEFAULT_ENCODING</charsetEncoding>
+      <respondOnNewConnection>0</respondOnNewConnection>
+      <responseAddress></responseAddress>
+      <responsePort></responsePort>
+    </properties>
+    <transformer version="4.5.2">
+      <elements>
+        <com.mirth.connect.plugins.javascriptstep.JavaScriptStep version="4.5.2">
+          <name>Epic ADT inbound transformer</name>
+          <sequenceNumber>0</sequenceNumber>
+          <enabled>true</enabled>
+          <script>/**
+ * Epic Bridges ADT Inbound Transformer
+ *
+ * Handles the quirks of ADT traffic coming out of Epic Bridges:
+ *   - A28 (add person) and A31 (update person) are aggressively deduped:
+ *     Epic emits them on every chart update, not just true admits.
+ *   - PV1-2 patient class mapping: Epic-specific codes (&apos;I&apos;,&apos;O&apos;,&apos;E&apos;,&apos;P&apos;,&apos;R&apos;)
+ *     to FHIR Encounter.class.
+ *   - Z-segments: ZPV (Epic visit extras), ZIN (Epic insurance extras)
+ *     copied into Encounter.extension and Coverage.extension.
+ *   - HL7 escape: Epic uses backslash escaping for &apos;,&apos; &apos;~&apos; &apos;|&apos; in free-text.
+ *
+ * Dedup uses globalChannelMap with TTL — two A28/A31 for the same PID-3
+ * within 10 minutes are suppressed (the second goes straight to NULL
+ * destination via channelMap.duplicateSuppressed = &apos;true&apos;).
+ *
+ * Inputs: HL7v2 ADT (A01/A02/A03/A04/A08/A11/A12/A13/A28/A31/A40)
+ * Outputs (channelMap):
+ *   triggerEvent             - ADT event code
+ *   duplicateSuppressed      - &apos;true&apos; if Epic A28/A31 dedup fired
+ *   fhirBundle               - FHIR Bundle JSON
+ *   epicVisitId              - PV1-19 (Epic&apos;s CSN)
+ *   epicPatientClass         - PV1-2 raw value
+ *
+ * Tested on: Mirth Connect 4.5.2 with Epic 2024 Bridges feed
+ * Author: Nirmitee.io | License: MIT
+ */
+
+var DEDUP_WINDOW_MS = 10 * 60 * 1000;
+
+// Epic PV1-2 -&gt; FHIR Encounter.class
+var EPIC_CLASS_MAP = {
+    &apos;I&apos;: { code: &apos;IMP&apos;,  display: &apos;inpatient encounter&apos; },
+    &apos;O&apos;: { code: &apos;AMB&apos;,  display: &apos;ambulatory&apos; },
+    &apos;E&apos;: { code: &apos;EMER&apos;, display: &apos;emergency&apos; },
+    &apos;P&apos;: { code: &apos;PRENC&apos;, display: &apos;pre-admission&apos; },
+    &apos;R&apos;: { code: &apos;AMB&apos;,  display: &apos;recurring (treated as ambulatory)&apos; },
+    &apos;B&apos;: { code: &apos;OBSENC&apos;, display: &apos;observation&apos; }
+};
+
+function unescapeHL7(s) {
+    if (!s) return s;
+    return (s + &apos;&apos;)
+        .replace(/\\F\\/g, &apos;|&apos;)
+        .replace(/\\S\\/g, &apos;^&apos;)
+        .replace(/\\R\\/g, &apos;~&apos;)
+        .replace(/\\T\\/g, &apos;&amp;&apos;)
+        .replace(/\\E\\/g, &apos;\\&apos;);
+}
+
+function safeGet(node, path) {
+    try {
+        var current = node;
+        var parts = path.split(&apos;|&apos;);
+        for (var i = 0; i &lt; parts.length; i++) {
+            if (current === null || current === undefined) return &apos;&apos;;
+            current = current[parts[i]];
+        }
+        return current === null || current === undefined ? &apos;&apos; : (current + &apos;&apos;);
+    } catch (e) { return &apos;&apos;; }
+}
+
+function dedupKey(pid3, trigger) { return &apos;epic-dedup:&apos; + trigger + &apos;:&apos; + pid3; }
+
+function isDuplicate(pid3, trigger) {
+    if (trigger !== &apos;A28&apos; &amp;&amp; trigger !== &apos;A31&apos;) return false;
+    var key = dedupKey(pid3, trigger);
+    if (globalChannelMap.containsKey(key)) {
+        var ts = parseInt(globalChannelMap.get(key) + &apos;&apos;, 10);
+        if (Date.now() - ts &lt; DEDUP_WINDOW_MS) return true;
+    }
+    globalChannelMap.put(key, &apos;&apos; + Date.now());
+    return false;
+}
+
+// === Extract ===
+var trigger = safeGet(msg, &apos;MSH|MSH.9|MSH.9.2&apos;);
+var mrn = safeGet(msg, &apos;PID|PID.3|PID.3.1&apos;);
+var lastName = unescapeHL7(safeGet(msg, &apos;PID|PID.5|PID.5.1&apos;));
+var firstName = unescapeHL7(safeGet(msg, &apos;PID|PID.5|PID.5.2&apos;));
+var dob = safeGet(msg, &apos;PID|PID.7|PID.7.1&apos;);
+var gender = safeGet(msg, &apos;PID|PID.8|PID.8.1&apos;);
+var patientClass = safeGet(msg, &apos;PV1|PV1.2|PV1.2.1&apos;);
+var visitId = safeGet(msg, &apos;PV1|PV1.19|PV1.19.1&apos;); // Epic CSN
+var ward = safeGet(msg, &apos;PV1|PV1.3|PV1.3.1&apos;);
+var room = safeGet(msg, &apos;PV1|PV1.3|PV1.3.2&apos;);
+var bed = safeGet(msg, &apos;PV1|PV1.3|PV1.3.3&apos;);
+
+channelMap.put(&apos;triggerEvent&apos;, trigger);
+channelMap.put(&apos;epicVisitId&apos;, visitId);
+channelMap.put(&apos;epicPatientClass&apos;, patientClass);
+
+// === Epic A28/A31 dedup ===
+if (isDuplicate(mrn, trigger)) {
+    channelMap.put(&apos;duplicateSuppressed&apos;, &apos;true&apos;);
+    logger.info(&apos;Epic dedup: suppressed &apos; + trigger + &apos; for &apos; + mrn);
+    return;
+}
+channelMap.put(&apos;duplicateSuppressed&apos;, &apos;false&apos;);
+
+// === Custom Z-segments ===
+// ZPV (Epic visit extras) e.g. ZPV|1|^discharge-disposition^Home|cost-center=ICU
+var zpvExtras = {};
+try {
+    var zpv = msg[&apos;ZPV&apos;];
+    if (zpv) {
+        zpvExtras.discharge = safeGet(zpv, &apos;ZPV.2|ZPV.2.1&apos;);
+        zpvExtras.costCenter = safeGet(zpv, &apos;ZPV.3|ZPV.3.1&apos;);
+    }
+} catch (e) {}
+
+// ZIN (Epic insurance extras) e.g. ZIN|1|priorAuth=AUTH123|effDate=20260101
+var zinExtras = {};
+try {
+    var zin = msg[&apos;ZIN&apos;];
+    if (zin) {
+        zinExtras.priorAuth = safeGet(zin, &apos;ZIN.2|ZIN.2.1&apos;);
+        zinExtras.effDate = safeGet(zin, &apos;ZIN.3|ZIN.3.1&apos;);
+    }
+} catch (e) {}
+
+// === FHIR Bundle ===
+var encClass = EPIC_CLASS_MAP[patientClass] || { code: &apos;AMB&apos;, display: &apos;unknown (defaulted)&apos; };
+var genderMap = { &apos;M&apos;: &apos;male&apos;, &apos;F&apos;: &apos;female&apos;, &apos;O&apos;: &apos;other&apos;, &apos;U&apos;: &apos;unknown&apos; };
+var fhirGender = genderMap[gender] || &apos;unknown&apos;;
+
+var patient = {
+    resourceType: &apos;Patient&apos;,
+    id: mrn,
+    identifier: [{
+        use: &apos;usual&apos;,
+        type: { coding: [{ system: &apos;http://terminology.hl7.org/CodeSystem/v2-0203&apos;, code: &apos;MR&apos; }] },
+        system: &apos;urn:oid:1.2.840.114350.1.13.999.999.4.1&apos;,
+        value: mrn
+    }],
+    active: true,
+    name: [{ use: &apos;official&apos;, family: lastName, given: [firstName] }],
+    gender: fhirGender,
+    birthDate: dob.length &gt;= 8 ? dob.substring(0, 4) + &apos;-&apos; + dob.substring(4, 6) + &apos;-&apos; + dob.substring(6, 8) : null
+};
+
+var encounter = {
+    resourceType: &apos;Encounter&apos;,
+    id: &apos;enc-&apos; + (visitId || mrn),
+    status: &apos;in-progress&apos;,
+    &apos;class&apos;: {
+        system: &apos;http://terminology.hl7.org/CodeSystem/v3-ActCode&apos;,
+        code: encClass.code,
+        display: encClass.display
+    },
+    identifier: visitId ? [{
+        system: &apos;urn:oid:1.2.840.114350.1.13.999.999.5.737384.700&apos;,
+        value: visitId,
+        type: { text: &apos;Epic CSN&apos; }
+    }] : [],
+    subject: { reference: &apos;Patient/&apos; + mrn },
+    location: [{ location: { display: ward + &apos; &apos; + room + &apos; &apos; + bed } }],
+    extension: []
+};
+
+if (zpvExtras.discharge) {
+    encounter.extension.push({
+        url: &apos;http://hospital.local/epic-extensions/discharge-disposition&apos;,
+        valueString: zpvExtras.discharge
+    });
+}
+if (zpvExtras.costCenter) {
+    encounter.extension.push({
+        url: &apos;http://hospital.local/epic-extensions/cost-center&apos;,
+        valueString: zpvExtras.costCenter
+    });
+}
+
+var bundle = {
+    resourceType: &apos;Bundle&apos;,
+    type: &apos;transaction&apos;,
+    timestamp: new Date().toISOString(),
+    entry: [
+        { resource: patient,   request: { method: &apos;PUT&apos;, url: &apos;Patient/&apos; + mrn } },
+        { resource: encounter, request: { method: &apos;PUT&apos;, url: &apos;Encounter/enc-&apos; + (visitId || mrn) } }
+    ]
+};
+
+channelMap.put(&apos;fhirBundle&apos;, JSON.stringify(bundle, null, 2));
+logger.info(
+    &apos;Epic ADT &apos; + trigger + &apos; | MRN=&apos; + mrn +
+    &apos; CSN=&apos; + visitId +
+    &apos; class=&apos; + patientClass + &apos;-&gt;&apos; + encClass.code
+);
+</script>
+        </com.mirth.connect.plugins.javascriptstep.JavaScriptStep>
+      </elements>
+      <inboundTemplate encoding="base64"></inboundTemplate>
+      <outboundTemplate encoding="base64"></outboundTemplate>
+      <inboundDataType>HL7V2</inboundDataType>
+      <outboundDataType>HL7V2</outboundDataType>
+      <inboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+        <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+          <handleRepetitions>true</handleRepetitions>
+          <handleSubcomponents>true</handleSubcomponents>
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <stripNamespaces>false</stripNamespaces>
+          <segmentDelimiter>\r</segmentDelimiter>
+          <convertLineBreaks>true</convertLineBreaks>
+        </serializationProperties>
+        <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <segmentDelimiter>\r</segmentDelimiter>
+        </deserializationProperties>
+        <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+          <splitType>MSH_Segment</splitType>
+          <batchScript></batchScript>
+        </batchProperties>
+        <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+          <segmentDelimiter>\r</segmentDelimiter>
+          <successfulACKCode>AA</successfulACKCode>
+          <successfulACKMessage></successfulACKMessage>
+          <errorACKCode>AE</errorACKCode>
+          <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+          <rejectedACKCode>AR</rejectedACKCode>
+          <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+          <msh15ACKAccept>false</msh15ACKAccept>
+          <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+        </responseGenerationProperties>
+        <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+          <successfulACKCode>AA,CA</successfulACKCode>
+          <errorACKCode>AE,CE</errorACKCode>
+          <rejectedACKCode>AR,CR</rejectedACKCode>
+          <validateMessageControlId>true</validateMessageControlId>
+          <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+          <originalIdMapVariable></originalIdMapVariable>
+        </responseValidationProperties>
+      </inboundProperties>
+      <outboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+        <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+          <handleRepetitions>true</handleRepetitions>
+          <handleSubcomponents>true</handleSubcomponents>
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <stripNamespaces>false</stripNamespaces>
+          <segmentDelimiter>\r</segmentDelimiter>
+          <convertLineBreaks>true</convertLineBreaks>
+        </serializationProperties>
+        <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <segmentDelimiter>\r</segmentDelimiter>
+        </deserializationProperties>
+        <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+          <splitType>MSH_Segment</splitType>
+          <batchScript></batchScript>
+        </batchProperties>
+        <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+          <segmentDelimiter>\r</segmentDelimiter>
+          <successfulACKCode>AA</successfulACKCode>
+          <successfulACKMessage></successfulACKMessage>
+          <errorACKCode>AE</errorACKCode>
+          <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+          <rejectedACKCode>AR</rejectedACKCode>
+          <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+          <msh15ACKAccept>false</msh15ACKAccept>
+          <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+        </responseGenerationProperties>
+        <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+          <successfulACKCode>AA,CA</successfulACKCode>
+          <errorACKCode>AE,CE</errorACKCode>
+          <rejectedACKCode>AR,CR</rejectedACKCode>
+          <validateMessageControlId>true</validateMessageControlId>
+          <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+          <originalIdMapVariable></originalIdMapVariable>
+        </responseValidationProperties>
+      </outboundProperties>
+    </transformer>
+    <filter version="4.5.2">
+      <elements/>
+    </filter>
+    <transportName>TCP Listener</transportName>
+    <mode>SOURCE</mode>
+    <enabled>true</enabled>
+    <waitForPrevious>true</waitForPrevious>
+  </sourceConnector>
+  <destinationConnectors/>
+  <preprocessingScript>return message;</preprocessingScript>
+  <postprocessingScript>return;</postprocessingScript>
+  <deployScript>return;</deployScript>
+  <undeployScript>return;</undeployScript>
+  <properties version="4.5.2">
+    <clearGlobalChannelMap>false</clearGlobalChannelMap>
+    <messageStorageMode>DEVELOPMENT</messageStorageMode>
+    <encryptData>false</encryptData>
+    <encryptAttachments>false</encryptAttachments>
+    <encryptCustomMetaData>false</encryptCustomMetaData>
+    <removeContentOnCompletion>false</removeContentOnCompletion>
+    <removeOnlyFilteredOnCompletion>false</removeOnlyFilteredOnCompletion>
+    <removeAttachmentsOnCompletion>false</removeAttachmentsOnCompletion>
+    <initialState>STARTED</initialState>
+    <storeAttachments>true</storeAttachments>
+    <metaDataColumns/>
+    <attachmentProperties version="4.5.2">
+      <type>None</type>
+      <properties/>
+    </attachmentProperties>
+    <resourceIds class="linked-hash-map">
+      <entry>
+        <string>Default Resource</string>
+        <string>[Default Resource]</string>
+      </entry>
+    </resourceIds>
+  </properties>
+  <exportData>
+    <metadata>
+      <enabled>true</enabled>
+    </metadata>
+    <dependentIds/>
+    <dependencyIds/>
+    <channelTags/>
+  </exportData>
+</channel>

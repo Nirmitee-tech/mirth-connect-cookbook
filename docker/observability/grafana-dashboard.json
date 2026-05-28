@@ -1,0 +1,142 @@
+{
+  "annotations": { "list": [] },
+  "description": "Recipe #37 — Mirth Connect logs via Loki. Author: Nirmitee.io. License: MIT.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "title": "Mirth Connect — Logs",
+  "uid": "mirth-logs",
+  "version": 1,
+  "schemaVersion": 39,
+  "timezone": "browser",
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "30s",
+  "tags": ["mirth", "loki", "nirmitee"],
+  "templating": {
+    "list": [
+      {
+        "name": "channel_id",
+        "label": "Channel ID",
+        "type": "query",
+        "datasource": { "type": "loki", "uid": "loki" },
+        "query": { "label": "channel_id", "stream": "{job=\"mirth\",stream=\"channel\"}", "type": 1 },
+        "includeAll": true,
+        "multi": true,
+        "current": { "selected": false, "text": "All", "value": "$__all" },
+        "refresh": 2
+      },
+      {
+        "name": "level",
+        "label": "Level",
+        "type": "custom",
+        "options": [
+          { "text": "All",   "value": "$__all" },
+          { "text": "ERROR", "value": "ERROR" },
+          { "text": "WARN",  "value": "WARN"  },
+          { "text": "INFO",  "value": "INFO"  },
+          { "text": "DEBUG", "value": "DEBUG" }
+        ],
+        "current": { "text": "All", "value": "$__all" },
+        "includeAll": true,
+        "multi": true
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Log volume by level",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (level) (rate({job=\"mirth\"} [$__interval]))",
+          "legendFormat": "{{level}}"
+        }
+      ],
+      "options": { "legend": { "showLegend": true, "placement": "right" } },
+      "fieldConfig": { "defaults": { "custom": { "drawStyle": "bars", "stacking": { "mode": "normal" } } } }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Errors per channel (top 10)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (channel_id) (rate({job=\"mirth\",stream=\"channel\",level=\"ERROR\"} [$__interval])))",
+          "legendFormat": "{{channel_id}}"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Total errors (1h)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 7 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(count_over_time({job=\"mirth\",level=\"ERROR\"} [1h]))"
+        }
+      ],
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "colorMode": "background" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [
+        { "color": "green", "value": null }, { "color": "yellow", "value": 10 }, { "color": "red", "value": 100 } ] } } }
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Active channels logging",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 7 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "count(count by (channel_id) (rate({job=\"mirth\",stream=\"channel\"} [5m])))"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "table",
+      "title": "Top error messages (last 1h)",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 7 },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "topk(10, sum by (channel_id) (count_over_time({job=\"mirth\",level=\"ERROR\"} [1h])))",
+          "instant": true,
+          "format": "table"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "logs",
+      "title": "Channel log stream",
+      "datasource": { "type": "loki", "uid": "loki" },
+      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 16 },
+      "options": {
+        "showTime": true,
+        "showLabels": true,
+        "wrapLogMessage": true,
+        "enableLogDetails": true,
+        "dedupStrategy": "none"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{job=\"mirth\",stream=~\"channel|error\",channel_id=~\"$channel_id\",level=~\"$level\"}"
+        }
+      ]
+    }
+  ]
+}

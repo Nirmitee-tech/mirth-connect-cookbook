@@ -1,0 +1,62 @@
+{
+  "_description": "Recipe #50 — per-environment configuration for Mirth channel promotion. Copy to env-config.json (gitignored) and fill in real values. Credentials should come from env vars in CI, not be committed.",
+  "_format": {
+    "url": "Mirth admin API base URL (https://host:8443)",
+    "user": "Mirth REST API user",
+    "pass": "Mirth REST API password — prefer env vars MIRTH_{ENV}_PASS",
+    "substitutions": "Key/value pairs replaced inside channel XML for ${KEY} and {{KEY}} placeholders"
+  },
+  "environments": {
+    "dev": {
+      "url": "https://mirth-dev.internal.acme.io:8443",
+      "user": "promote-bot",
+      "pass": "",
+      "substitutions": {
+        "FHIR_URL": "https://fhir-dev.internal.acme.io/fhir",
+        "KAFKA_BROKERS": "kafka-dev:9092",
+        "DB_HOST": "pg-dev.internal.acme.io",
+        "DB_NAME": "mirthapp_dev",
+        "VAULT_ADDR": "https://vault-dev.internal.acme.io",
+        "S3_ATTACHMENT_BUCKET": "acme-mirth-dev-attachments",
+        "EHR_MLLP_HOST": "10.20.0.10",
+        "EHR_MLLP_PORT": "6661",
+        "LOG_LEVEL": "DEBUG",
+        "ALERT_EMAIL": "dev-oncall@acme.io"
+      }
+    },
+    "staging": {
+      "url": "https://mirth-stg.internal.acme.io:8443",
+      "user": "promote-bot",
+      "pass": "",
+      "substitutions": {
+        "FHIR_URL": "https://fhir-stg.internal.acme.io/fhir",
+        "KAFKA_BROKERS": "kafka-stg-1:9092,kafka-stg-2:9092",
+        "DB_HOST": "pg-stg.internal.acme.io",
+        "DB_NAME": "mirthapp_stg",
+        "VAULT_ADDR": "https://vault-stg.internal.acme.io",
+        "S3_ATTACHMENT_BUCKET": "acme-mirth-stg-attachments",
+        "EHR_MLLP_HOST": "10.30.0.10",
+        "EHR_MLLP_PORT": "6661",
+        "LOG_LEVEL": "INFO",
+        "ALERT_EMAIL": "stg-oncall@acme.io"
+      }
+    },
+    "prod": {
+      "url": "https://mirth.acme.io:8443",
+      "user": "promote-bot",
+      "pass": "",
+      "substitutions": {
+        "FHIR_URL": "https://fhir.acme.io/fhir",
+        "KAFKA_BROKERS": "kafka-1.prod:9092,kafka-2.prod:9092,kafka-3.prod:9092",
+        "DB_HOST": "pg.prod.acme.io",
+        "DB_NAME": "mirthapp",
+        "VAULT_ADDR": "https://vault.acme.io",
+        "S3_ATTACHMENT_BUCKET": "acme-mirth-attachments",
+        "EHR_MLLP_HOST": "10.40.0.10",
+        "EHR_MLLP_PORT": "6661",
+        "LOG_LEVEL": "WARN",
+        "ALERT_EMAIL": "pager@acme.io"
+      }
+    }
+  }
+}

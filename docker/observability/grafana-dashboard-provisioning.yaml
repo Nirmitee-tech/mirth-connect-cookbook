@@ -1,0 +1,12 @@
+# Recipe #37 — Grafana dashboard provisioning
+apiVersion: 1
+providers:
+  - name: 'mirth'
+    orgId: 1
+    folder: 'Mirth Connect'
+    type: file
+    disableDeletion: false
+    editable: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards

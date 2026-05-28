@@ -70,11 +70,11 @@ Status legend: ✅ tested & committed | 🚧 in progress | 📋 planned
 | 43 | redox-app-adapter | 📋 | Integrations |
 | 44 | health-gorilla-bulk-data | 📋 | Integrations |
 | 45 | openemr-hl7v2-bidirectional | 📋 | Integrations |
-| 46 | active-active-cluster-postgres | 📋 | HA & DR |
-| 47 | kubernetes-helm-chart | 📋 | DevOps |
-| 48 | terraform-aws-mirth-module | 📋 | DevOps |
-| 49 | github-actions-channel-ci | 📋 | DevOps |
-| 50 | multi-environment-promotion | 📋 | DevOps |
+| 46 | [active-active-cluster-postgres](docker/active-active-cluster/) | 🚧 | HA & DR |
+| 47 | [kubernetes-helm-chart](deploy/helm/mirth-connect/) | 🚧 | DevOps |
+| 48 | [terraform-aws-mirth-module](deploy/terraform/aws-mirth/) | 🚧 | DevOps |
+| 49 | [github-actions-channel-ci](scripts/ci/) | 🚧 | DevOps |
+| 50 | [multi-environment-promotion](scripts/devops/promotion/) | 🚧 | DevOps |
 
 ---
 
