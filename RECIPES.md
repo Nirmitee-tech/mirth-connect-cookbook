@@ -76,6 +76,8 @@ Status legend: ✅ tested & committed | 🚧 in progress | 📋 planned
 | 49 | [github-actions-channel-ci](scripts/ci/) | 🚧 | DevOps |
 | 50 | [multi-environment-promotion](scripts/devops/promotion/) | 🚧 | DevOps |
 | 51 | [hospital-operations-dashboard](docker/hospital-operations-dashboard/) | ✅ | Observability |
+| 52 | [interface-catalog-generator](scripts/operations/interface-catalog-generator/) | ✅ | Documentation |
+| 53 | [hl7v2-fanout-api-db-excel](channels/hl7v2-fanout-api-db-excel/) | ✅ | Channel Patterns |
 
 ---
 

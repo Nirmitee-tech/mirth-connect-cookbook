@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{ channel.name }} — Interface Detail</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>{% include "_base.css" %}</style>
+</head>
+<body>
+<header class="site">
+  <div class="container">
+    <h1>{{ channel.name }}</h1>
+    <div class="subtitle">{{ channel.description or "No description provided." }}</div>
+    <div class="meta">
+      <span>Interface type: <strong>{{ channel.interface_type }}</strong></span>
+      <span>Clinical impact: {{ channel.clinical_impact }}</span>
+      <span>State: <span class="badge badge-{{ channel.state | lower }}">{{ channel.state }}</span></span>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <a href="../index.html" class="back-link">← Back to catalog</a>
+
+  <h2>Message flow</h2>
+  <div class="flow">
+    <div class="flow-node source">
+      <h4>Source connector</h4>
+      <div class="name">{{ channel.source.type }}</div>
+      <div class="details">
+        {% if channel.source.details.port %}Port <code>{{ channel.source.details.port }}</code>{% endif %}
+        {% if channel.source.details.host %} on <code>{{ channel.source.details.host }}</code>{% endif %}
+        {% if channel.source.details.path %} at <code>{{ channel.source.details.path }}</code>{% endif %}
+        {% if channel.source.details.directory %} reads <code>{{ channel.source.details.directory }}</code>{% endif %}
+        {% if channel.source.details.url %} <code>{{ channel.source.details.url }}</code>{% endif %}
+        {% if channel.source.details.driver %} driver <code>{{ channel.source.details.driver }}</code>{% endif %}
+      </div>
+      {% if channel.source.transformer and channel.source.transformer.elements > 0 %}
+      <div class="details" style="margin-top:6px;">
+        Source transformer: {{ channel.source.transformer.elements }} step(s),
+        <code>{{ channel.source.transformer.inbound }}</code> → <code>{{ channel.source.transformer.outbound }}</code>
+      </div>
+      {% endif %}
+      {% if channel.source.filter and channel.source.filter.rules > 0 %}
+      <div class="details">Filter: {{ channel.source.filter.rules }} rule(s)</div>
+      {% endif %}
+    </div>
+
+    {% for d in channel.destinations %}
+    <div class="flow-arrow">↓</div>
+    <div class="flow-node dest">
+      <h4>Destination {{ loop.index }}{% if not d.enabled %} (disabled){% endif %}</h4>
+      <div class="name">{{ d.name }} <span style="color:#94a3b8;font-weight:400;font-size:13px;">— {{ d.type }}</span></div>
+      <div class="details">
+        {% if d.details.host %}To <code>{{ d.details.host }}{% if d.details.port %}:{{ d.details.port }}{% endif %}</code>{% endif %}
+        {% if d.details.url %}<code>{{ d.details.method or 'GET' }} {{ d.details.url }}</code>{% endif %}
+        {% if d.details.directory %}<code>{{ d.details.directory }}</code>{% endif %}
+        {% if d.details.channel_id and d.details.channel_id != 'none' %}
+          Sends to channel <code>{{ d.details.channel_id }}</code>
+        {% endif %}
+      </div>
+      {% if d.transformer and d.transformer.elements > 0 %}
+      <div class="details" style="margin-top:6px;">
+        Destination transformer: {{ d.transformer.elements }} step(s),
+        <code>{{ d.transformer.inbound }}</code> → <code>{{ d.transformer.outbound }}</code>
+      </div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+
+  <h2>Runtime statistics</h2>
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="label">Received</div>
+      <div class="value">{{ '{:,}'.format(channel.stats.received) }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Sent</div>
+      <div class="value">{{ '{:,}'.format(channel.stats.sent) }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Filtered</div>
+      <div class="value">{{ '{:,}'.format(channel.stats.filtered) }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Errored</div>
+      <div class="value" {% if channel.stats.errored > 0 %}style="color:#c0392b;"{% endif %}>{{ '{:,}'.format(channel.stats.errored) }}</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Queued</div>
+      <div class="value" {% if channel.stats.queued > 0 %}style="color:#b7791f;"{% endif %}>{{ '{:,}'.format(channel.stats.queued) }}</div>
+    </div>
+  </div>
+
+  <h2>Dependencies</h2>
+  <h3>Sends data to</h3>
+  <ul class="dep-list">
+    {% if channel.sends_to %}
+      {% for s in channel.sends_to %}<li><a href="{{ s.name | replace(' ', '-') | lower }}.html">{{ s.name }}</a> <code>via {{ s.via }}</code></li>{% endfor %}
+    {% else %}
+      <li class="none">No downstream Mirth channels (external destinations only)</li>
+    {% endif %}
+  </ul>
+
+  <h3>Consumed by</h3>
+  <ul class="dep-list">
+    {% if channel.consumed_by %}
+      {% for s in channel.consumed_by %}<li><a href="{{ s.name | replace(' ', '-') | lower }}.html">{{ s.name }}</a> <code>via {{ s.via }}</code></li>{% endfor %}
+    {% else %}
+      <li class="none">No upstream Mirth channels feed this channel</li>
+    {% endif %}
+  </ul>
+
+  {% if channel.code_template_refs %}
+  <h3>Likely code template references</h3>
+  <ul class="dep-list">
+    {% for ref in channel.code_template_refs %}<li><code>{{ ref }}()</code></li>{% endfor %}
+  </ul>
+  <p style="font-size:12px;color:#6b7a90;margin-top:4px;">Heuristically identified from transformer JavaScript. Verify in the Mirth Code Template editor.</p>
+  {% endif %}
+
+  <h2>Metadata</h2>
+  <div class="kv">
+    <div class="k">Channel ID</div>           <div class="v"><code>{{ channel.id }}</code></div>
+    <div class="k">Revision</div>             <div class="v">{{ channel.revision }}</div>
+    <div class="k">Interface type</div>       <div class="v"><span class="iface iface-{{ channel.interface_type | replace(' ', '') }}">{{ channel.interface_type }}</span></div>
+    <div class="k">Clinical impact</div>      <div class="v">{{ channel.clinical_impact }}</div>
+    <div class="k">Source data type</div>     <div class="v"><code>{{ channel.source.data_type }}</code></div>
+    <div class="k">Destinations</div>         <div class="v">{{ channel.destinations | length }}</div>
+  </div>
+</div>
+
+<footer class="site">
+  Catalog auto-generated from Mirth Connect REST API
+</footer>
+</body>
+</html>

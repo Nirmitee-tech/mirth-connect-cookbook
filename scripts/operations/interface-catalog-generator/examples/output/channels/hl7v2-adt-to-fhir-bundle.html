@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>HL7v2 ADT to FHIR Bundle — Interface Detail</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>/* shared catalog styling — clean, print-friendly, no external deps */
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+  margin: 0; padding: 0;
+  color: #1a2332;
+  background: #f6f8fb;
+  line-height: 1.5;
+}
+.container { max-width: 1400px; margin: 0 auto; padding: 24px 32px; }
+header.site {
+  background: linear-gradient(135deg, #0b2545 0%, #13315c 50%, #2554a4 100%);
+  color: #fff;
+  padding: 28px 32px;
+  border-bottom: 4px solid #ffb703;
+}
+header.site .container { padding: 0; }
+header.site h1 { margin: 0 0 4px; font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
+header.site .subtitle { opacity: 0.85; font-size: 14px; }
+header.site .meta { margin-top: 12px; font-size: 12px; opacity: 0.7; }
+header.site .meta span { margin-right: 18px; }
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin: 24px 0 32px;
+}
+.summary-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 18px 20px;
+  box-shadow: 0 1px 3px rgba(10, 30, 60, 0.06), 0 1px 2px rgba(10, 30, 60, 0.04);
+}
+.summary-card .label { font-size: 12px; color: #6b7a90; text-transform: uppercase; letter-spacing: 0.05em; }
+.summary-card .value { font-size: 32px; font-weight: 600; color: #0b2545; margin-top: 4px; }
+.summary-card .sub { font-size: 12px; color: #6b7a90; }
+
+h2 { font-size: 18px; margin: 32px 0 16px; color: #0b2545; }
+h3 { font-size: 15px; margin: 24px 0 8px; color: #1a2332; }
+
+.toolbar {
+  background: #fff;
+  padding: 14px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+  box-shadow: 0 1px 3px rgba(10, 30, 60, 0.06);
+}
+.toolbar input, .toolbar select {
+  border: 1px solid #d4dce8;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-family: inherit;
+}
+.toolbar input[type="search"] { flex: 1; min-width: 240px; }
+.toolbar .count { margin-left: auto; color: #6b7a90; font-size: 13px; }
+
+table.channels {
+  width: 100%;
+  background: #fff;
+  border-collapse: collapse;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(10, 30, 60, 0.06);
+}
+table.channels th {
+  background: #f0f4fa;
+  text-align: left;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7a90;
+  border-bottom: 1px solid #e2e8f0;
+}
+table.channels td {
+  padding: 12px 14px;
+  font-size: 14px;
+  border-bottom: 1px solid #eef1f5;
+  vertical-align: top;
+}
+table.channels tr:hover td { background: #f9fbfd; }
+table.channels a { color: #2554a4; text-decoration: none; font-weight: 500; }
+table.channels a:hover { text-decoration: underline; }
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.badge-started { background: #d4f4dd; color: #1e5b30; }
+.badge-stopped { background: #fadbd8; color: #922b21; }
+.badge-paused { background: #fff3cd; color: #8a6d3b; }
+.badge-unknown { background: #e9ecef; color: #495057; }
+
+.iface { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.iface-ADT { background: #e3f2fd; color: #0d47a1; }
+.iface-Results { background: #f3e5f5; color: #4a148c; }
+.iface-Orders { background: #fff3e0; color: #e65100; }
+.iface-Pharmacy { background: #e8f5e9; color: #1b5e20; }
+.iface-Claims { background: #fce4ec; color: #880e4f; }
+.iface-Scheduling { background: #f1f8e9; color: #33691e; }
+.iface-Documents { background: #ede7f6; color: #311b92; }
+.iface-Immunization { background: #e0f7fa; color: #006064; }
+.iface-DataLake, .iface-Data { background: #fff8e1; color: #5d4037; }
+.iface-ClinicalRepo, .iface-Clinical { background: #ffebee; color: #b71c1c; }
+.iface-FHIRPipeline, .iface-FHIR { background: #e8eaf6; color: #1a237e; }
+.iface-Routing { background: #f3e5f5; color: #4a148c; }
+.iface-Other { background: #eceff1; color: #455a64; }
+
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.num-error { color: #c0392b; font-weight: 600; }
+.num-queue-warn { color: #b7791f; font-weight: 600; }
+.num-queue-bad { color: #c0392b; font-weight: 600; }
+
+footer.site {
+  margin-top: 48px;
+  padding: 24px 32px;
+  font-size: 12px;
+  color: #6b7a90;
+  text-align: center;
+  border-top: 1px solid #e2e8f0;
+}
+
+/* Channel detail page */
+.flow {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin: 16px 0 24px;
+}
+.flow-node {
+  background: #fff;
+  border: 1px solid #d4dce8;
+  border-left: 4px solid #2554a4;
+  padding: 14px 18px;
+  border-radius: 6px;
+  position: relative;
+}
+.flow-node.source { border-left-color: #ff9f1c; }
+.flow-node.dest { border-left-color: #2554a4; }
+.flow-node h4 { margin: 0 0 4px; font-size: 13px; color: #6b7a90; text-transform: uppercase; letter-spacing: 0.04em; }
+.flow-node .name { font-size: 16px; font-weight: 600; color: #0b2545; }
+.flow-node .details { margin-top: 8px; font-size: 13px; color: #475569; }
+.flow-node .details code { background: #f0f4fa; padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+.flow-arrow { color: #94a3b8; text-align: center; font-size: 20px; line-height: 1; margin: 4px 0; }
+
+.kv {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  gap: 8px 16px;
+  background: #fff;
+  padding: 18px 22px;
+  border-radius: 8px;
+  margin: 12px 0;
+  box-shadow: 0 1px 3px rgba(10, 30, 60, 0.06);
+}
+.kv .k { color: #6b7a90; font-size: 13px; }
+.kv .v { color: #1a2332; font-size: 14px; }
+
+.dep-list { background: #fff; border-radius: 8px; padding: 16px 22px; box-shadow: 0 1px 3px rgba(10, 30, 60, 0.06); }
+.dep-list li { margin: 4px 0; font-size: 14px; }
+.dep-list .none { color: #94a3b8; font-style: italic; }
+.dep-list code { background: #f0f4fa; padding: 1px 6px; border-radius: 3px; font-size: 12px; }
+
+.back-link { display: inline-block; margin-bottom: 16px; font-size: 13px; color: #2554a4; text-decoration: none; }
+.back-link:hover { text-decoration: underline; }
+
+@media print {
+  header.site { background: #0b2545 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .toolbar, footer.site .filter { display: none; }
+}</style>
+</head>
+<body>
+<header class="site">
+  <div class="container">
+    <h1>HL7v2 ADT to FHIR Bundle</h1>
+    <div class="subtitle">HL7v2 ADT to FHIR R4 Bundle with mapping tables and business rules</div>
+    <div class="meta">
+      <span>Interface type: <strong>ADT</strong></span>
+      <span>Clinical impact: Bed mgmt, registration, census</span>
+      <span>State: <span class="badge badge-started">STARTED</span></span>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <a href="../index.html" class="back-link">← Back to catalog</a>
+
+  <h2>Message flow</h2>
+  <div class="flow">
+    <div class="flow-node source">
+      <h4>Source connector</h4>
+      <div class="name">MLLP / TCP Listener</div>
+      <div class="details">
+Port <code>6661</code> on <code>0.0.0.0</code>      </div>
+      <div class="details" style="margin-top:6px;">
+        Source transformer: 1 step(s),
+        <code>HL7V2</code> → <code>HL7V2</code>
+      </div>
+    </div>
+
+    <div class="flow-arrow">↓</div>
+    <div class="flow-node dest">
+      <h4>Destination 1</h4>
+      <div class="name">Destination 1 <span style="color:#94a3b8;font-weight:400;font-size:13px;">— Channel Writer</span></div>
+      <div class="details">
+      </div>
+    </div>
+  </div>
+
+  <h2>Runtime statistics</h2>
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="label">Received</div>
+      <div class="value">232</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Sent</div>
+      <div class="value">232</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Filtered</div>
+      <div class="value">0</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Errored</div>
+      <div class="value" >0</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Queued</div>
+      <div class="value" >0</div>
+    </div>
+  </div>
+
+  <h2>Dependencies</h2>
+  <h3>Sends data to</h3>
+  <ul class="dep-list">
+      <li class="none">No downstream Mirth channels (external destinations only)</li>
+  </ul>
+
+  <h3>Consumed by</h3>
+  <ul class="dep-list">
+      <li class="none">No upstream Mirth channels feed this channel</li>
+  </ul>
+
+  <h3>Likely code template references</h3>
+  <ul class="dep-list">
+<li><code>for()</code></li><li><code>if()</code></li><li><code>parseInt()</code></li>  </ul>
+  <p style="font-size:12px;color:#6b7a90;margin-top:4px;">Heuristically identified from transformer JavaScript. Verify in the Mirth Code Template editor.</p>
+
+  <h2>Metadata</h2>
+  <div class="kv">
+    <div class="k">Channel ID</div>           <div class="v"><code>b9db3e58-c373-4b94-9729-d45dc6dca929</code></div>
+    <div class="k">Revision</div>             <div class="v">1</div>
+    <div class="k">Interface type</div>       <div class="v"><span class="iface iface-ADT">ADT</span></div>
+    <div class="k">Clinical impact</div>      <div class="v">Bed mgmt, registration, census</div>
+    <div class="k">Source data type</div>     <div class="v"><code></code></div>
+    <div class="k">Destinations</div>         <div class="v">1</div>
+  </div>
+</div>
+
+<footer class="site">
+  Catalog auto-generated from Mirth Connect REST API
+</footer>
+</body>
+</html>

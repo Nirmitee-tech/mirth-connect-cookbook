@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>{{ summary.hospital }} — Mirth Connect Interface Catalog</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>{% include "_base.css" %}</style>
+</head>
+<body>
+<header class="site">
+  <div class="container">
+    <h1>{{ summary.hospital }} — Mirth Connect Interface Catalog</h1>
+    <div class="subtitle">Auto-generated documentation of every clinical and administrative interface.</div>
+    <div class="meta">
+      <span>Server: <code>{{ summary.mirth_url }}</code></span>
+      <span>Mirth: {{ summary.mirth_version }}</span>
+      <span>Generated: {{ summary.generated_at }}</span>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="label">Total interfaces</div>
+      <div class="value">{{ summary.channel_count }}</div>
+      <div class="sub">{{ summary.started_count }} STARTED</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Clinical interface types</div>
+      <div class="value">{{ summary.interfaces | length }}</div>
+      <div class="sub">categorized by message domain</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Messages processed</div>
+      <div class="value">{{ '{:,}'.format(channels | sum(attribute='stats.received')) }}</div>
+      <div class="sub">since last counter reset</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Total errors</div>
+      <div class="value" {% if (channels | sum(attribute='stats.errored')) > 0 %}style="color:#c0392b;"{% endif %}>{{ '{:,}'.format(channels | sum(attribute='stats.errored')) }}</div>
+      <div class="sub">across all interfaces</div>
+    </div>
+    <div class="summary-card">
+      <div class="label">Queued now</div>
+      <div class="value" {% if (channels | sum(attribute='stats.queued')) > 0 %}style="color:#b7791f;"{% endif %}>{{ '{:,}'.format(channels | sum(attribute='stats.queued')) }}</div>
+      <div class="sub">awaiting delivery</div>
+    </div>
+  </div>
+
+  <h2>Interfaces by clinical domain</h2>
+  <table class="channels" style="margin-bottom:32px;">
+    <thead>
+      <tr>
+        <th>Interface type</th>
+        <th>Clinical impact</th>
+        <th class="num">Channels</th>
+        <th class="num">Received</th>
+        <th class="num">Errors</th>
+        <th class="num">Queued</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for itype, totals in summary.interfaces.items() | sort %}
+      <tr>
+        <td><span class="iface iface-{{ itype | replace(' ', '') }}">{{ itype }}</span></td>
+        <td style="color:#475569;font-size:13px;">
+          {% set sample = channels | selectattr('interface_type','equalto',itype) | first %}
+          {{ sample.clinical_impact if sample else '' }}
+        </td>
+        <td class="num">{{ totals.channels }}</td>
+        <td class="num">{{ '{:,}'.format(totals.received) }}</td>
+        <td class="num {% if totals.errored > 0 %}num-error{% endif %}">{{ totals.errored }}</td>
+        <td class="num {% if totals.queued > 10 %}num-queue-bad{% elif totals.queued > 0 %}num-queue-warn{% endif %}">{{ totals.queued }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <h2>All interfaces</h2>
+  <div class="toolbar">
+    <input type="search" id="search" placeholder="Search by name, description, source, destination..." />
+    <select id="filter-interface">
+      <option value="">All interface types</option>
+      {% for itype in summary.interfaces.keys() | sort %}
+      <option value="{{ itype }}">{{ itype }}</option>
+      {% endfor %}
+    </select>
+    <select id="filter-state">
+      <option value="">All states</option>
+      <option value="STARTED">STARTED</option>
+      <option value="STOPPED">STOPPED</option>
+      <option value="PAUSED">PAUSED</option>
+    </select>
+    <span class="count" id="count">{{ channels | length }} interfaces</span>
+  </div>
+
+  <table class="channels" id="channel-table">
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Type</th>
+        <th>Source</th>
+        <th>Destinations</th>
+        <th>State</th>
+        <th class="num">Received</th>
+        <th class="num">Errors</th>
+        <th class="num">Queued</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in channels %}
+      <tr data-interface="{{ c.interface_type }}" data-state="{{ c.state }}" data-search="{{ (c.name + ' ' + c.description + ' ' + c.source.type + ' ' + (c.destinations | map(attribute='type') | join(' '))) | lower }}">
+        <td>
+          <a href="channels/{{ c.slug }}.html">{{ c.name }}</a>
+          {% if c.description %}<div style="font-size:12px;color:#6b7a90;margin-top:2px;">{{ c.description | truncate(80) }}</div>{% endif %}
+        </td>
+        <td><span class="iface iface-{{ c.interface_type | replace(' ', '') }}">{{ c.interface_type }}</span></td>
+        <td style="font-size:13px;">{{ c.source.type }}{% if c.source.details.port %} :{{ c.source.details.port }}{% endif %}</td>
+        <td style="font-size:13px;">
+          {% for d in c.destinations %}{{ d.type }}{% if not loop.last %}<br/>{% endif %}{% endfor %}
+        </td>
+        <td><span class="badge badge-{{ c.state | lower }}">{{ c.state }}</span></td>
+        <td class="num">{{ '{:,}'.format(c.stats.received) }}</td>
+        <td class="num {% if c.stats.errored > 0 %}num-error{% endif %}">{{ c.stats.errored }}</td>
+        <td class="num {% if c.stats.queued > 10 %}num-queue-bad{% elif c.stats.queued > 0 %}num-queue-warn{% endif %}">{{ c.stats.queued }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<footer class="site">
+  Catalog auto-generated from Mirth Connect REST API · Re-run the generator to refresh
+</footer>
+
+<script>
+(function() {
+  var rows = Array.prototype.slice.call(document.querySelectorAll('#channel-table tbody tr'));
+  var search = document.getElementById('search');
+  var fInterface = document.getElementById('filter-interface');
+  var fState = document.getElementById('filter-state');
+  var count = document.getElementById('count');
+
+  function apply() {
+    var q = search.value.trim().toLowerCase();
+    var i = fInterface.value;
+    var s = fState.value;
+    var shown = 0;
+    rows.forEach(function(r) {
+      var match = (!q || r.dataset.search.indexOf(q) !== -1)
+               && (!i || r.dataset.interface === i)
+               && (!s || r.dataset.state === s);
+      r.style.display = match ? '' : 'none';
+      if (match) shown++;
+    });
+    count.textContent = shown + ' interface' + (shown === 1 ? '' : 's');
+  }
+
+  [search, fInterface, fState].forEach(function(el) {
+    el.addEventListener('input', apply);
+    el.addEventListener('change', apply);
+  });
+})();
+</script>
+</body>
+</html>

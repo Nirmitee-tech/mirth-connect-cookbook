@@ -1,0 +1,548 @@
+{
+  "summary": {
+    "hospital": "Demo Memorial Hospital",
+    "mirth_url": "https://localhost:8443",
+    "mirth_version": "4.5.2",
+    "generated_at": "2026-05-28T07:50:58.818661Z",
+    "channel_count": 9,
+    "started_count": 9,
+    "interfaces": {
+      "Claims": {
+        "channels": 1,
+        "received": 111,
+        "errored": 0,
+        "queued": 0
+      },
+      "ADT": {
+        "channels": 3,
+        "received": 269,
+        "errored": 2,
+        "queued": 0
+      },
+      "Clinical Repo": {
+        "channels": 1,
+        "received": 18,
+        "errored": 0,
+        "queued": 0
+      },
+      "Data Lake": {
+        "channels": 1,
+        "received": 0,
+        "errored": 0,
+        "queued": 0
+      },
+      "Results": {
+        "channels": 1,
+        "received": 703,
+        "errored": 0,
+        "queued": 0
+      },
+      "Orders": {
+        "channels": 1,
+        "received": 154,
+        "errored": 0,
+        "queued": 0
+      },
+      "Pharmacy": {
+        "channels": 1,
+        "received": 76,
+        "errored": 0,
+        "queued": 0
+      }
+    }
+  },
+  "channels": [
+    {
+      "id": "113a2f60-0aa6-477d-9814-6dcbcf7f61a8",
+      "name": "Claims (837) Listener",
+      "description": "Billing claims out to clearinghouse",
+      "revision": "1",
+      "interface_type": "Claims",
+      "clinical_impact": "Revenue cycle, AR",
+      "source": {
+        "type": "MLLP / TCP Listener",
+        "class": "com.mirth.connect.connectors.tcp.TcpReceiverProperties",
+        "details": {
+          "host": "0.0.0.0",
+          "port": "6673"
+        },
+        "transformer": {
+          "elements": 0,
+          "inbound": "HL7V2",
+          "outbound": "HL7V2"
+        },
+        "filter": {
+          "rules": 0
+        },
+        "data_type": ""
+      },
+      "destinations": [
+        {
+          "type": "Channel Writer",
+          "class": "com.mirth.connect.connectors.vm.VmDispatcherProperties",
+          "details": {
+            "channel_id": "none"
+          },
+          "name": "Destination 1",
+          "transformer": {
+            "elements": 0,
+            "inbound": "HL7V2",
+            "outbound": "HL7V2"
+          },
+          "enabled": true
+        }
+      ],
+      "code_template_refs": [],
+      "state": "STARTED",
+      "stats": {
+        "received": 111,
+        "sent": 111,
+        "filtered": 0,
+        "errored": 0,
+        "queued": 0
+      },
+      "sends_to": [],
+      "consumed_by": [],
+      "slug": "claims-837-listener"
+    },
+    {
+      "id": "b9db3e58-c373-4b94-9729-d45dc6dca929",
+      "name": "HL7v2 ADT to FHIR Bundle",
+      "description": "HL7v2 ADT to FHIR R4 Bundle with mapping tables and business rules",
+      "revision": "1",
+      "interface_type": "ADT",
+      "clinical_impact": "Bed mgmt, registration, census",
+      "source": {
+        "type": "MLLP / TCP Listener",
+        "class": "com.mirth.connect.connectors.tcp.TcpReceiverProperties",
+        "details": {
+          "host": "0.0.0.0",
+          "port": "6661"
+        },
+        "transformer": {
+          "elements": 1,
+          "inbound": "HL7V2",
+          "outbound": "HL7V2"
+        },
+        "filter": {
+          "rules": 0
+        },
+        "data_type": ""
+      },
+      "destinations": [
+        {
+          "type": "Channel Writer",
+          "class": "com.mirth.connect.connectors.vm.VmDispatcherProperties",
+          "details": {
+            "channel_id": "none"
+          },
+          "name": "Destination 1",
+          "transformer": {
+            "elements": 0,
+            "inbound": "HL7V2",
+            "outbound": "HL7V2"
+          },
+          "enabled": true
+        }
+      ],
+      "code_template_refs": [
+        "for",
+        "if",
+        "parseInt"
+      ],
+      "state": "STARTED",
+      "stats": {
+        "received": 232,
+        "sent": 232,
+        "filtered": 0,
+        "errored": 0,
+        "queued": 0
+      },
+      "sends_to": [],
+      "consumed_by": [],
+      "slug": "hl7v2-adt-to-fhir-bundle"
+    },
+    {
+      "id": "27f940d0-297e-452f-8ae4-c47df981ff42",
+      "name": "HL7v2 to openEHR Composition",
+      "description": "Transforms HL7v2 ADT to openEHR FLAT Composition format for EHRbase/Better Platform CDRs. Demonstrates the openEHR integration gap in Mirth.",
+      "revision": "1",
+      "interface_type": "Clinical Repo",
+      "clinical_impact": "Longitudinal record (openEHR)",
+      "source": {
+        "type": "MLLP / TCP Listener",
+        "class": "com.mirth.connect.connectors.tcp.TcpReceiverProperties",
+        "details": {
+          "host": "0.0.0.0",
+          "port": "6663"
+        },
+        "transformer": {
+          "elements": 1,
+          "inbound": "HL7V2",
+          "outbound": "HL7V2"
+        },
+        "filter": {
+          "rules": 0
+        },
+        "data_type": ""
+      },
+      "destinations": [
+        {
+          "type": "Channel Writer",
+          "class": "com.mirth.connect.connectors.vm.VmDispatcherProperties",
+          "details": {
+            "channel_id": "none"
+          },
+          "name": "Destination 1",
+          "transformer": {
+            "elements": 0,
+            "inbound": "HL7V2",
+            "outbound": "HL7V2"
+          },
+          "enabled": true
+        }
+      ],
+      "code_template_refs": [
+        "if"
+      ],
+      "state": "STARTED",
+      "stats": {
+        "received": 18,
+        "sent": 18,
+        "filtered": 0,
+        "errored": 0,
+        "queued": 0
+      },
+      "sends_to": [],
+      "consumed_by": [],
+      "slug": "hl7v2-to-openehr-composition"
+    },
+    {
+      "id": "643887ef-6bf0-42cf-b5dd-dcbe0f62a08f",
+      "name": "Kafka Consumer - FHIR Processor",
+      "description": "HL7v2 ADT to FHIR R4 Bundle with mapping tables and business rules",
+      "revision": "1",
+      "interface_type": "Data Lake",
+      "clinical_impact": "Analytics, ML feature store",
+      "source": {
+        "type": "JavaScript Reader",
+        "class": "com.mirth.connect.connectors.js.JavaScriptReceiverProperties",
+        "details": {},
+        "transformer": {
+          "elements": 1,
+          "inbound": "RAW",
+          "outbound": "RAW"
+        },
+        "filter": {
+          "rules": 0
+        },
+        "data_type": ""
+      },
+      "destinations": [
+        {
+          "type": "Channel Writer",
+          "class": "com.mirth.connect.connectors.vm.VmDispatcherProperties",
+          "details": {
+            "channel_id": "none"
+          },
+          "name": "Destination 1",
+          "transformer": {
+            "elements": 0,
+            "inbound": "RAW",
+            "outbound": "RAW"
+          },
+          "enabled": true
+        }
+      ],
+      "code_template_refs": [
+        "for",
+        "if",
+        "parseInt",
+        "while"
+      ],
+      "state": "STARTED",
+      "stats": {
+        "received": 0,
+        "sent": 0,
+        "filtered": 0,
+        "errored": 0,
+        "queued": 0
+      },
+      "sends_to": [],
+      "consumed_by": [],
+      "slug": "kafka-consumer---fhir-processor"
+    },
+    {
+      "id": "2b46d779-b01d-41b2-aca1-12722a6a7f9d",
+      "name": "Kafka Producer - ADT to FHIR",
+      "description": "HL7v2 ADT to FHIR R4 Bundle with mapping tables and business rules",
+      "revision": "1",
+      "interface_type": "ADT",
+      "clinical_impact": "Bed mgmt, registration, census",
+      "source": {
+        "type": "MLLP / TCP Listener",
+        "class": "com.mirth.connect.connectors.tcp.TcpReceiverProperties",
+        "details": {
+          "host": "0.0.0.0",
+          "port": "6664"
+        },
+        "transformer": {
+          "elements": 1,
+          "inbound": "HL7V2",
+          "outbound": "HL7V2"
+        },
+        "filter": {
+          "rules": 0
+        },
+        "data_type": ""
+      },
+      "destinations": [
+        {
+          "type": "Channel Writer",
+          "class": "com.mirth.connect.connectors.vm.VmDispatcherProperties",
+          "details": {
+            "channel_id": "none"
+          },
+          "name": "Destination 1",
+          "transformer": {
+            "elements": 0,
+            "inbound": "HL7V2",
+            "outbound": "HL7V2"
+          },
+          "enabled": true
+        }
+      ],
+      "code_template_refs": [
+        "for",
+        "if",
+        "parseInt"
+      ],
+      "state": "STARTED",
+      "stats": {
+        "received": 20,
+        "sent": 18,
+        "filtered": 0,
+        "errored": 2,
+        "queued": 0
+      },
+      "sends_to": [],
+      "consumed_by": [],
+      "slug": "kafka-producer---adt-to-fhir"
+    },
+    {
+      "id": "5a6e9815-fa3f-419c-a07d-8464ceba9f80",
+      "name": "Lab Results (ORU) Listener",
+      "description": "Inbound lab/radiology results \u2014 drives chart updates",
+      "revision": "1",
+      "interface_type": "Results",
+      "clinical_impact": "Lab/Rad results to chart",
+      "source": {
+        "type": "MLLP / TCP Listener",
+        "class": "com.mirth.connect.connectors.tcp.TcpReceiverProperties",
+        "details": {
+          "host": "0.0.0.0",
+          "port": "6671"
+        },
+        "transformer": {
+          "elements": 0,
+          "inbound": "HL7V2",
+          "outbound": "HL7V2"
+        },
+        "filter": {
+          "rules": 0
+        },
+        "data_type": ""
+      },
+      "destinations": [
+        {
+          "type": "Channel Writer",
+          "class": "com.mirth.connect.connectors.vm.VmDispatcherProperties",
+          "details": {
+            "channel_id": "none"
+          },
+          "name": "Destination 1",
+          "transformer": {
+            "elements": 0,
+            "inbound": "HL7V2",
+            "outbound": "HL7V2"
+          },
+          "enabled": true
+        }
+      ],
+      "code_template_refs": [],
+      "state": "STARTED",
+      "stats": {
+        "received": 703,
+        "sent": 703,
+        "filtered": 0,
+        "errored": 0,
+        "queued": 0
+      },
+      "sends_to": [],
+      "consumed_by": [],
+      "slug": "lab-results-oru-listener"
+    },
+    {
+      "id": "4b44d5d1-e244-4469-9415-d78682b3db63",
+      "name": "Orders (ORM) Listener",
+      "description": "Order entry \u2014 drives lab/rad/pharmacy fulfillment",
+      "revision": "1",
+      "interface_type": "Orders",
+      "clinical_impact": "Lab/Rad/Pharmacy orders flow",
+      "source": {
+        "type": "MLLP / TCP Listener",
+        "class": "com.mirth.connect.connectors.tcp.TcpReceiverProperties",
+        "details": {
+          "host": "0.0.0.0",
+          "port": "6672"
+        },
+        "transformer": {
+          "elements": 0,
+          "inbound": "HL7V2",
+          "outbound": "HL7V2"
+        },
+        "filter": {
+          "rules": 0
+        },
+        "data_type": ""
+      },
+      "destinations": [
+        {
+          "type": "Channel Writer",
+          "class": "com.mirth.connect.connectors.vm.VmDispatcherProperties",
+          "details": {
+            "channel_id": "none"
+          },
+          "name": "Destination 1",
+          "transformer": {
+            "elements": 0,
+            "inbound": "HL7V2",
+            "outbound": "HL7V2"
+          },
+          "enabled": true
+        }
+      ],
+      "code_template_refs": [],
+      "state": "STARTED",
+      "stats": {
+        "received": 154,
+        "sent": 154,
+        "filtered": 0,
+        "errored": 0,
+        "queued": 0
+      },
+      "sends_to": [],
+      "consumed_by": [],
+      "slug": "orders-orm-listener"
+    },
+    {
+      "id": "484f113c-d2dd-4f93-9875-a10b3923f7d5",
+      "name": "Pharmacy (RDS) Listener",
+      "description": "Pharmacy dispense \u2014 drives MAR updates",
+      "revision": "1",
+      "interface_type": "Pharmacy",
+      "clinical_impact": "Medication safety, MAR",
+      "source": {
+        "type": "MLLP / TCP Listener",
+        "class": "com.mirth.connect.connectors.tcp.TcpReceiverProperties",
+        "details": {
+          "host": "0.0.0.0",
+          "port": "6674"
+        },
+        "transformer": {
+          "elements": 0,
+          "inbound": "HL7V2",
+          "outbound": "HL7V2"
+        },
+        "filter": {
+          "rules": 0
+        },
+        "data_type": ""
+      },
+      "destinations": [
+        {
+          "type": "Channel Writer",
+          "class": "com.mirth.connect.connectors.vm.VmDispatcherProperties",
+          "details": {
+            "channel_id": "none"
+          },
+          "name": "Destination 1",
+          "transformer": {
+            "elements": 0,
+            "inbound": "HL7V2",
+            "outbound": "HL7V2"
+          },
+          "enabled": true
+        }
+      ],
+      "code_template_refs": [],
+      "state": "STARTED",
+      "stats": {
+        "received": 76,
+        "sent": 76,
+        "filtered": 0,
+        "errored": 0,
+        "queued": 0
+      },
+      "sends_to": [],
+      "consumed_by": [],
+      "slug": "pharmacy-rds-listener"
+    },
+    {
+      "id": "96888800-ab8a-485c-9d25-b9a3943a8282",
+      "name": "Smart ADT Router",
+      "description": "Routes ADT messages by ward: ICU\u2192Critical Care, ER\u2192Emergency System, Pediatrics\u2192Children Hospital, Other\u2192General EHR. Demonstrates content-based routing.",
+      "revision": "1",
+      "interface_type": "ADT",
+      "clinical_impact": "Bed mgmt, registration, census",
+      "source": {
+        "type": "MLLP / TCP Listener",
+        "class": "com.mirth.connect.connectors.tcp.TcpReceiverProperties",
+        "details": {
+          "host": "0.0.0.0",
+          "port": "6662"
+        },
+        "transformer": {
+          "elements": 1,
+          "inbound": "HL7V2",
+          "outbound": "HL7V2"
+        },
+        "filter": {
+          "rules": 0
+        },
+        "data_type": ""
+      },
+      "destinations": [
+        {
+          "type": "Channel Writer",
+          "class": "com.mirth.connect.connectors.vm.VmDispatcherProperties",
+          "details": {
+            "channel_id": "none"
+          },
+          "name": "Destination 1",
+          "transformer": {
+            "elements": 0,
+            "inbound": "HL7V2",
+            "outbound": "HL7V2"
+          },
+          "enabled": true
+        }
+      ],
+      "code_template_refs": [
+        "if",
+        "parseInt"
+      ],
+      "state": "STARTED",
+      "stats": {
+        "received": 17,
+        "sent": 17,
+        "filtered": 0,
+        "errored": 0,
+        "queued": 0
+      },
+      "sends_to": [],
+      "consumed_by": [],
+      "slug": "smart-adt-router"
+    }
+  ]
+}
