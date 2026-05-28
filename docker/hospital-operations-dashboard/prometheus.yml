@@ -1,0 +1,17 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: 'mirth-prometheus-exporter'
+    metrics_path: '/metrics'
+    scheme: 'http'
+    static_configs:
+      - targets: ['mirth-prometheus-exporter:9100']
+        labels:
+          instance: 'mirth-connect'
+          env: 'dev'
+
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']

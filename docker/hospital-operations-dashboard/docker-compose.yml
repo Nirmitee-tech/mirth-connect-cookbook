@@ -1,0 +1,88 @@
+services:
+  mirth-db:
+    image: postgres:16-alpine
+    container_name: hosp-ops-mirth-db
+    environment:
+      POSTGRES_DB: mirthdb
+      POSTGRES_USER: mirthdb
+      POSTGRES_PASSWORD: mirthdb
+    volumes:
+      - mirth-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mirthdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mirth-connect:
+    image: nextgenhealthcare/connect:4.5.2
+    container_name: hosp-ops-mirth
+    depends_on:
+      mirth-db:
+        condition: service_healthy
+    environment:
+      DATABASE: postgres
+      DATABASE_URL: jdbc:postgresql://mirth-db:5432/mirthdb
+      DATABASE_USERNAME: mirthdb
+      DATABASE_PASSWORD: mirthdb
+      VMOPTIONS: "-Xmx512m"
+    ports:
+      - "8443:8443"     # Mirth Administrator
+      - "6661:6661"     # ADT listener
+      - "6671:6671"     # Lab Results (ORU)
+      - "6672:6672"     # Orders (ORM)
+      - "6673:6673"     # Claims (837)
+      - "6674:6674"     # Pharmacy (RDS)
+    volumes:
+      - mirth-appdata:/opt/connect/appdata
+    restart: unless-stopped
+
+  mirth-prometheus-exporter:
+    build: ./exporter
+    container_name: hosp-ops-exporter
+    depends_on:
+      - mirth-connect
+    environment:
+      MIRTH_URL: https://mirth-connect:8443
+      MIRTH_USER: admin
+      MIRTH_PASS: admin
+    ports:
+      - "9100:9100"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: hosp-ops-prometheus
+    depends_on:
+      - mirth-prometheus-exporter
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: hosp-ops-grafana
+    depends_on:
+      - prometheus
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    restart: unless-stopped
+
+volumes:
+  mirth-db-data:
+  mirth-appdata:
+  prometheus-data:
+  grafana-data:

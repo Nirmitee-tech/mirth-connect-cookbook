@@ -1,0 +1,297 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "type": "text",
+      "id": 100,
+      "gridPos": {"h": 3, "w": 24, "x": 0, "y": 0},
+      "options": {
+        "mode": "markdown",
+        "content": "## Hospital Integration Operations — Mirth Connect\nThis view shows clinical impact, not channel mechanics. Each panel answers: *what does this mean for patients, clinicians, and revenue?* Drill in by interface (ADT, Orders, Results, Pharmacy, Claims) — not by channel name."
+      }
+    },
+
+    {
+      "type": "stat",
+      "id": 1,
+      "title": "Patient-Impact Backlog (ADT)",
+      "description": "Queued ADT messages = bed management & registration operating blind. Every queued message can be a delayed admission, bed assignment, or census update.",
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 3},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [{"expr": "sum(mirth_interface_queue_depth{interface_type=\"ADT\"})", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 5},
+            {"color": "red", "value": 25}
+          ]},
+          "mappings": [{"options": {"0": {"text": "Clear"}}, "type": "value"}]
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "textMode": "value_and_name", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "stat",
+      "id": 2,
+      "title": "Lab/Rad Results Backlog",
+      "description": "Queued results = clinicians waiting. STAT/critical results blocked here are a patient-safety issue. Target: 0 during clinical hours.",
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 3},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [{"expr": "sum(mirth_interface_queue_depth{interface_type=\"Results\"})", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 10}
+          ]},
+          "mappings": [{"options": {"0": {"text": "Clear"}}, "type": "value"}]
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "textMode": "value_and_name", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "stat",
+      "id": 3,
+      "title": "Order Routing Backlog",
+      "description": "Queued ORM = lab/rad/pharmacy orders not delivered. Delays diagnostic workups and medication starts.",
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 3},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [{"expr": "sum(mirth_interface_queue_depth{interface_type=\"Orders\"})", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 10}
+          ]},
+          "mappings": [{"options": {"0": {"text": "Clear"}}, "type": "value"}]
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "textMode": "value_and_name", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+    {
+      "type": "stat",
+      "id": 4,
+      "title": "Revenue Cycle Backlog (Claims)",
+      "description": "Queued 837/835/270/271 = revenue at risk. Every hour of delay compounds DSO and payer-deadline risk.",
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 3},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [{"expr": "sum(mirth_interface_queue_depth{interface_type=\"Claims\"})", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 10},
+            {"color": "red", "value": 100}
+          ]},
+          "mappings": [{"options": {"0": {"text": "Clear"}}, "type": "value"}]
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "area", "justifyMode": "center", "textMode": "value_and_name", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+
+    {
+      "type": "table",
+      "id": 5,
+      "title": "Critical Interface Status",
+      "description": "Each row is a clinical workflow. State + last activity + queue depth tell you whether the workflow is healthy.",
+      "gridPos": {"h": 11, "w": 24, "x": 0, "y": 8},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [
+        {"expr": "mirth_channel_state{state=\"STARTED\"} == 1", "format": "table", "instant": true, "refId": "A"},
+        {"expr": "mirth_channel_queued", "format": "table", "instant": true, "refId": "B"},
+        {"expr": "mirth_channel_errored_total", "format": "table", "instant": true, "refId": "C"},
+        {"expr": "mirth_channel_received_total", "format": "table", "instant": true, "refId": "D"},
+        {"expr": "mirth_channel_seconds_since_last_message", "format": "table", "instant": true, "refId": "E"}
+      ],
+      "transformations": [
+        {"id": "merge"},
+        {"id": "organize", "options": {
+          "excludeByName": {"Time": true, "__name__": true, "channel_id": true, "env": true, "instance": true, "job": true, "state": true},
+          "indexByName": {
+            "interface_type": 0,
+            "channel": 1,
+            "clinical_impact": 2,
+            "Value #A": 3,
+            "Value #D": 4,
+            "Value #B": 5,
+            "Value #C": 6,
+            "Value #E": 7
+          },
+          "renameByName": {
+            "interface_type": "Interface",
+            "channel": "Channel",
+            "clinical_impact": "Clinical Impact",
+            "Value #A": "Up",
+            "Value #D": "Processed",
+            "Value #B": "Queued",
+            "Value #C": "Errors",
+            "Value #E": "Last Msg (s ago)"
+          }
+        }}
+      ],
+      "fieldConfig": {
+        "defaults": {"color": {"mode": "thresholds"}, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}]}, "custom": {"align": "left", "cellOptions": {"type": "auto"}}},
+        "overrides": [
+          {
+            "matcher": {"id": "byName", "options": "Up"},
+            "properties": [
+              {"id": "custom.cellOptions", "value": {"type": "color-background"}},
+              {"id": "mappings", "value": [
+                {"options": {"1": {"color": "green", "text": "STARTED"}}, "type": "value"}
+              ]},
+              {"id": "custom.width", "value": 90}
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "Queued"},
+            "properties": [
+              {"id": "custom.cellOptions", "value": {"type": "color-background"}},
+              {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 10}
+              ]}},
+              {"id": "custom.width", "value": 90}
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "Errors"},
+            "properties": [
+              {"id": "custom.cellOptions", "value": {"type": "color-background"}},
+              {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                {"color": "green", "value": null},
+                {"color": "red", "value": 1}
+              ]}},
+              {"id": "custom.width", "value": 90}
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "Last Msg (s ago)"},
+            "properties": [
+              {"id": "custom.cellOptions", "value": {"type": "color-background"}},
+              {"id": "thresholds", "value": {"mode": "absolute", "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 300},
+                {"color": "red", "value": 900}
+              ]}},
+              {"id": "unit", "value": "s"},
+              {"id": "custom.width", "value": 140}
+            ]
+          },
+          {
+            "matcher": {"id": "byName", "options": "Interface"},
+            "properties": [{"id": "custom.width", "value": 130}]
+          },
+          {
+            "matcher": {"id": "byName", "options": "Clinical Impact"},
+            "properties": [{"id": "custom.width", "value": 260}]
+          }
+        ]
+      },
+      "options": {"cellHeight": "md", "footer": {"show": false}, "showHeader": true, "sortBy": [{"desc": true, "displayName": "Queued"}]}
+    },
+
+    {
+      "type": "timeseries",
+      "id": 6,
+      "title": "Clinical Message Throughput (msg/sec) by interface type",
+      "description": "Sustained throughput drop on ADT or Results = upstream system trouble (EHR, lab, RIS). Spike on Claims = end-of-day batch arrived.",
+      "gridPos": {"h": 9, "w": 16, "x": 0, "y": 19},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [
+        {"expr": "sum by (interface_type) (rate(mirth_interface_messages_received_total[1m]))", "legendFormat": "{{interface_type}}", "refId": "A"}
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "palette-classic"},
+          "custom": {
+            "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2,
+            "fillOpacity": 25, "gradientMode": "opacity", "showPoints": "never",
+            "stacking": {"group": "A", "mode": "none"}
+          },
+          "unit": "ops"
+        }
+      },
+      "options": {"legend": {"calcs": ["mean", "max"], "displayMode": "table", "placement": "right"}, "tooltip": {"mode": "multi", "sort": "desc"}}
+    },
+
+    {
+      "type": "stat",
+      "id": 7,
+      "title": "Interfaces Down",
+      "description": "Any non-STARTED channel in a clinical interface = blind spot in that workflow. Should be zero in production.",
+      "gridPos": {"h": 4, "w": 8, "x": 16, "y": 19},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [{"expr": "sum(mirth_interface_channels_total - mirth_interface_channels_started)", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "red", "value": 1}
+          ]},
+          "mappings": [{"options": {"0": {"text": "All Up"}}, "type": "value"}]
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+
+    {
+      "type": "stat",
+      "id": 8,
+      "title": "Interfaces With Errors (last reset)",
+      "description": "Number of interface types with any errored messages. Investigate root cause before clinicians notice.",
+      "gridPos": {"h": 5, "w": 8, "x": 16, "y": 23},
+      "datasource": {"type": "prometheus", "uid": "PBFA97CFB590B2093"},
+      "targets": [{"expr": "count(mirth_interface_messages_errored_total > 0)", "refId": "A"}],
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [
+            {"color": "green", "value": null},
+            {"color": "yellow", "value": 1},
+            {"color": "red", "value": 2}
+          ]},
+          "mappings": [{"options": {"0": {"text": "Clean"}}, "type": "value"}]
+        }
+      },
+      "options": {"colorMode": "background", "graphMode": "none", "justifyMode": "center", "reduceOptions": {"calcs": ["lastNotNull"]}}
+    },
+
+    {
+      "type": "text",
+      "id": 200,
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 28},
+      "options": {
+        "mode": "markdown",
+        "content": "### How to read this dashboard\n- **Patient-Impact Backlog tiles** answer: *who is being affected right now?* ADT backlog means bed managers and registration are working blind. Results backlog means clinicians are waiting on labs/imaging that already exist. Orders backlog means workups aren't reaching the lab/RIS/pharmacy. Claims backlog is revenue sitting still.\n- **Critical Interface Status table** sorts by queue depth. The top row is the workflow most at risk right now.\n- **Last Msg (s ago)** turns yellow at 5 min and red at 15 min — production ADT/Results interfaces should never go silent for that long during clinical hours.\n- **Clinical Message Throughput** is the line a CIO points at when asking \"why is our chart slow today?\" — a sustained dip in ADT or Results almost always traces back to upstream EHR/lab system trouble.\n\n### What this does NOT yet measure (next iterations)\n- True clinical SLAs (order → result turnaround, door → page time, discharge → PCP delivery) — needs message-level timestamps from HL7v2 MSH-7 vs delivery timestamp.\n- Patient counts behind a queue — needs per-message PID parsing to count *distinct patients* affected, not just *messages* queued.\n- Compliance metrics — Cures Act Patient Access API uptime, TEFCA QHIN delivery rate, info-blocking response time.\n- Cost-of-outage — wire revenue-per-claim and avg LOS impact-per-delayed-ADT to convert backlog into dollar-impact-per-minute."
+      }
+    }
+  ],
+  "refresh": "5s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["mirth", "healthcare", "operations"],
+  "templating": {"list": []},
+  "time": {"from": "now-30m", "to": "now"},
+  "timepicker": {},
+  "timezone": "",
+  "title": "Hospital Integration Operations",
+  "uid": "hospital-ops",
+  "version": 1,
+  "weekStart": ""
+}

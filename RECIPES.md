@@ -75,6 +75,7 @@ Status legend: ✅ tested & committed | 🚧 in progress | 📋 planned
 | 48 | [terraform-aws-mirth-module](deploy/terraform/aws-mirth/) | 🚧 | DevOps |
 | 49 | [github-actions-channel-ci](scripts/ci/) | 🚧 | DevOps |
 | 50 | [multi-environment-promotion](scripts/devops/promotion/) | 🚧 | DevOps |
+| 51 | [hospital-operations-dashboard](docker/hospital-operations-dashboard/) | ✅ | Observability |
 
 ---
 
