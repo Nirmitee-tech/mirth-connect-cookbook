@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mirth.fullname" . }}-properties
+  labels: {{- include "mirth.labels" . | nindent 4 }}
+data:
+  mirth.properties: |
+    # Rendered from values.mirthProperties
+    {{- range $k, $v := .Values.mirthProperties }}
+    {{ $k }} = {{ $v }}
+    {{- end }}
+    database = {{ .Values.database.type }}
+    database.url = jdbc:postgresql://{{ .Values.database.host }}:{{ .Values.database.port }}/{{ .Values.database.name }}
+    database.max-connections = {{ .Values.database.maxConnections }}
+
+{{- if .Values.customLibJars }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mirth.fullname" . }}-customlib-manifest
+  labels: {{- include "mirth.labels" . | nindent 4 }}
+data:
+  fetch.sh: |
+    #!/bin/sh
+    set -eu
+    cd /opt/connect/custom-lib
+    {{- range .Values.customLibJars }}
+    echo "[customlib] fetching {{ .name }}"
+    wget -q -O "{{ .name }}.jar" "{{ .url }}"
+    {{- if .sha256 }}
+    echo "{{ .sha256 }}  {{ .name }}.jar" | sha256sum -c -
+    {{- end }}
+    {{- end }}
+    echo "[customlib] done"
+{{- end }}
+
+{{- if .Values.monitoring.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "mirth.fullname" . }}-jmx-exporter
+  labels: {{- include "mirth.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    rules:
+      - pattern: "com.mirth.connect.donkey:type=channels,name=*,statistic=*"
+        name: mirth_channel_$2
+        labels:
+          channel: "$1"
+        help: "Mirth channel statistic"
+        type: COUNTER
+      - pattern: ".*"
+{{- end }}

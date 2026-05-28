@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PatientService WSDL — Mirth SOAP Facade
+  Exposes a getPatient(patientId) operation.
+  Bound to http://localhost:8089/ws/PatientService.
+-->
+<definitions name="PatientService"
+             targetNamespace="http://nirmitee.io/ws/patient"
+             xmlns="http://schemas.xmlsoap.org/wsdl/"
+             xmlns:tns="http://nirmitee.io/ws/patient"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/">
+
+  <types>
+    <xsd:schema targetNamespace="http://nirmitee.io/ws/patient" elementFormDefault="qualified">
+
+      <xsd:element name="getPatientRequest">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="patientId" type="xsd:string"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <xsd:element name="getPatientResponse">
+        <xsd:complexType>
+          <xsd:sequence>
+            <!-- Wraps a FHIR R4 Patient resource serialized as XML -->
+            <xsd:element name="patient" type="xsd:anyType"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+
+      <xsd:element name="patientFault">
+        <xsd:complexType>
+          <xsd:sequence>
+            <xsd:element name="code" type="xsd:string"/>
+            <xsd:element name="message" type="xsd:string"/>
+          </xsd:sequence>
+        </xsd:complexType>
+      </xsd:element>
+    </xsd:schema>
+  </types>
+
+  <message name="getPatientRequestMessage">
+    <part name="parameters" element="tns:getPatientRequest"/>
+  </message>
+  <message name="getPatientResponseMessage">
+    <part name="parameters" element="tns:getPatientResponse"/>
+  </message>
+  <message name="getPatientFaultMessage">
+    <part name="parameters" element="tns:patientFault"/>
+  </message>
+
+  <portType name="PatientServicePortType">
+    <operation name="getPatient">
+      <input  message="tns:getPatientRequestMessage"/>
+      <output message="tns:getPatientResponseMessage"/>
+      <fault  name="patientFault" message="tns:getPatientFaultMessage"/>
+    </operation>
+  </portType>
+
+  <binding name="PatientServiceBinding" type="tns:PatientServicePortType">
+    <soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+    <operation name="getPatient">
+      <soap:operation soapAction="http://nirmitee.io/ws/patient/getPatient"/>
+      <input>  <soap:body use="literal"/> </input>
+      <output> <soap:body use="literal"/> </output>
+      <fault name="patientFault"> <soap:fault name="patientFault" use="literal"/> </fault>
+    </operation>
+  </binding>
+
+  <service name="PatientService">
+    <port name="PatientServicePort" binding="tns:PatientServiceBinding">
+      <soap:address location="http://localhost:8089/ws/PatientService"/>
+    </port>
+  </service>
+
+</definitions>

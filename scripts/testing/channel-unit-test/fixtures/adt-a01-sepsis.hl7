@@ -1,0 +1,6 @@
+MSH|^~\&|EPIC|MGH|MIRTH|HUB|20260528120000||ADT^A01|MSG-TEST-001|P|2.5.1
+EVN|A01|20260528120000
+PID|1||PAT-12345^^^MGH^MR||Harrison^Margaret^A||19540312|F|||88 Beacon Hill^^Boston^MA^02108^US||617-555-7000|||W
+PV1|1|I|ICU^601^A|E|||DR800^Kim^Jennifer|||MED||||7|||DR800^Kim^Jennifer|IP|V-DEMO-1
+IN1|1||BCBS|Blue Cross Blue Shield|||||||GRP-445566
+DG1|1||A41.9^Sepsis, unspecified organism^ICD10||20260528|A

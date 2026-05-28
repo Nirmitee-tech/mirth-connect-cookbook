@@ -1,0 +1,7 @@
+{
+  "patientId": "PAT-12345",
+  "orderId": "ORD-001",
+  "observationCount": 3,
+  "bundleType": "transaction",
+  "firstObservationLoinc": "6690-2"
+}

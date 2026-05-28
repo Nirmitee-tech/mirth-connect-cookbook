@@ -1,0 +1,136 @@
+# Recipe #46 — Active-Active Mirth Cluster with PostgreSQL HA
+# Tested on Mirth Connect 4.5.2
+# Author: Nirmitee.io | License: MIT
+---
+services:
+  pg-primary:
+    image: postgres:16-alpine
+    container_name: aa-pg-primary
+    environment:
+      POSTGRES_DB: mirthdb
+      POSTGRES_USER: mirthdb
+      POSTGRES_PASSWORD: mirthdb
+      POSTGRES_REPLICATION_USER: replicator
+      POSTGRES_REPLICATION_PASSWORD: replpass
+    command: >
+      postgres
+      -c wal_level=replica
+      -c max_wal_senders=10
+      -c max_replication_slots=10
+      -c hot_standby=on
+      -c archive_mode=on
+      -c archive_command='/bin/true'
+    volumes:
+      - aa-pg-primary-data:/var/lib/postgresql/data
+      - ./pg-primary-init.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mirthdb -d mirthdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - mirth-aa
+
+  pg-standby:
+    image: postgres:16-alpine
+    container_name: aa-pg-standby
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+    environment:
+      POSTGRES_PASSWORD: mirthdb
+      PGUSER: postgres
+      REPL_USER: replicator
+      REPL_PASSWORD: replpass
+      PRIMARY_HOST: pg-primary
+    entrypoint: ["/bin/sh", "/pg-standby-init.sh"]
+    volumes:
+      - aa-pg-standby-data:/var/lib/postgresql/data
+      - ./pg-standby-init.sh:/pg-standby-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -U mirthdb"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+    networks:
+      - mirth-aa
+
+  mirth-1:
+    image: nextgenhealthcare/connect:4.5.2
+    container_name: aa-mirth-1
+    hostname: mirth-1
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+    environment:
+      DATABASE: postgres
+      DATABASE_URL: jdbc:postgresql://pg-primary:5432/mirthdb
+      DATABASE_USERNAME: mirthdb
+      DATABASE_PASSWORD: mirthdb
+      DATABASE_MAX_CONNECTIONS: "20"
+      KEYSTORE_STOREPASS: changeit
+      KEYSTORE_KEYPASS: changeit
+      VMOPTIONS: "-Xms512m -Xmx1024m -Dserver.id=mirth-1"
+    ports:
+      - "8443:8443"
+    volumes:
+      - aa-mirth-1-appdata:/opt/connect/appdata
+      - aa-mirth-attachments:/opt/connect/appdata/attachments
+    restart: unless-stopped
+    networks:
+      - mirth-aa
+
+  mirth-2:
+    image: nextgenhealthcare/connect:4.5.2
+    container_name: aa-mirth-2
+    hostname: mirth-2
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+      mirth-1:
+        condition: service_started
+    environment:
+      DATABASE: postgres
+      DATABASE_URL: jdbc:postgresql://pg-primary:5432/mirthdb
+      DATABASE_USERNAME: mirthdb
+      DATABASE_PASSWORD: mirthdb
+      DATABASE_MAX_CONNECTIONS: "20"
+      KEYSTORE_STOREPASS: changeit
+      KEYSTORE_KEYPASS: changeit
+      VMOPTIONS: "-Xms512m -Xmx1024m -Dserver.id=mirth-2"
+    ports:
+      - "8444:8443"
+    volumes:
+      - aa-mirth-2-appdata:/opt/connect/appdata
+      - aa-mirth-attachments:/opt/connect/appdata/attachments
+    restart: unless-stopped
+    networks:
+      - mirth-aa
+
+  haproxy:
+    image: haproxy:2.9-alpine
+    container_name: aa-haproxy
+    depends_on:
+      - mirth-1
+      - mirth-2
+    ports:
+      - "6661:6661"   # MLLP ingress (load-balanced)
+      - "8404:8404"   # HAProxy stats
+    volumes:
+      - ./haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    restart: unless-stopped
+    networks:
+      - mirth-aa
+
+volumes:
+  aa-pg-primary-data:
+  aa-pg-standby-data:
+  aa-mirth-1-appdata:
+  aa-mirth-2-appdata:
+  aa-mirth-attachments:
+
+networks:
+  mirth-aa:
+    driver: bridge

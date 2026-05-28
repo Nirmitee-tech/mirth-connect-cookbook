@@ -1,0 +1,47 @@
+[
+  {
+    "scenario": "100mps-adt-steady",
+    "message_type": "ADT_A01",
+    "target_rate_mps": 100,
+    "duration_seconds": 30,
+    "sent": 3000,
+    "acked": 3000,
+    "nacked": 0,
+    "errors": 0,
+    "error_rate_pct": 0.0,
+    "throughput_mps": 99.6,
+    "latency_ms": { "min": 1.8, "p50": 3.1, "p95": 8.4, "p99": 14.2, "max": 31.0, "mean": 4.0 },
+    "started_at": "2026-05-28T10:01:00+00:00",
+    "finished_at": "2026-05-28T10:01:30+00:00"
+  },
+  {
+    "scenario": "1000mps-adt-ramp",
+    "message_type": "ADT_A01",
+    "target_rate_mps": 1000,
+    "duration_seconds": 60,
+    "sent": 60000,
+    "acked": 59988,
+    "nacked": 8,
+    "errors": 4,
+    "error_rate_pct": 0.02,
+    "throughput_mps": 986.2,
+    "latency_ms": { "min": 2.0, "p50": 6.7, "p95": 22.1, "p99": 41.8, "max": 188.3, "mean": 9.4 },
+    "started_at": "2026-05-28T10:02:00+00:00",
+    "finished_at": "2026-05-28T10:03:00+00:00"
+  },
+  {
+    "scenario": "10000mps-oru-burst",
+    "message_type": "ORU_R01",
+    "target_rate_mps": 10000,
+    "duration_seconds": 60,
+    "sent": 600000,
+    "acked": 591468,
+    "nacked": 3520,
+    "errors": 5012,
+    "error_rate_pct": 1.41,
+    "throughput_mps": 7842.0,
+    "latency_ms": { "min": 3.2, "p50": 18.4, "p95": 96.7, "p99": 248.5, "max": 1402.0, "mean": 28.6 },
+    "started_at": "2026-05-28T10:04:00+00:00",
+    "finished_at": "2026-05-28T10:05:00+00:00"
+  }
+]

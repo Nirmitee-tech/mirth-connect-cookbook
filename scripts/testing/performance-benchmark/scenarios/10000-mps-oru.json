@@ -1,0 +1,8 @@
+{
+  "name": "10000mps-oru-burst",
+  "message_type": "ORU_R01",
+  "target_rate": 10000,
+  "duration_seconds": 60,
+  "ramp_up_seconds": 30,
+  "concurrency": 800
+}

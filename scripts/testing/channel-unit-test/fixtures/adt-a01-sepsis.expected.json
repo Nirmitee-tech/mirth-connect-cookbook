@@ -1,0 +1,8 @@
+{
+  "mrn": "PAT-12345",
+  "facility": "MGH",
+  "ward": "ICU",
+  "diagnosis": "A41.9",
+  "expectedAlertCount": 1,
+  "expectedFlagCount": 3
+}

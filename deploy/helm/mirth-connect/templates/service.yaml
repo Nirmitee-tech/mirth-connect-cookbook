@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mirth.fullname" . }}-admin
+  labels: {{- include "mirth.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.admin.type }}
+  ports:
+    - name: admin
+      port: {{ .Values.service.admin.port }}
+      targetPort: admin
+      protocol: TCP
+    {{- if .Values.monitoring.enabled }}
+    - name: metrics
+      port: {{ .Values.monitoring.jmxExporter.port }}
+      targetPort: metrics
+      protocol: TCP
+    {{- end }}
+  selector: {{- include "mirth.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "mirth.fullname" . }}-mllp
+  labels: {{- include "mirth.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.mllp.type }}
+  ports:
+    {{- range .Values.service.mllp.ports }}
+    - name: {{ .name }}
+      port: {{ .port }}
+      targetPort: {{ .name }}
+      protocol: TCP
+      {{- if and (eq $.Values.service.mllp.type "NodePort") .nodePort }}
+      nodePort: {{ .nodePort }}
+      {{- end }}
+    {{- end }}
+  selector: {{- include "mirth.selectorLabels" . | nindent 4 }}

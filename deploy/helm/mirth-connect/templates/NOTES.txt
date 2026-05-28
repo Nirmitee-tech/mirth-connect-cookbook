@@ -1,0 +1,20 @@
+Mirth Connect {{ .Chart.AppVersion }} installed.
+
+Release: {{ .Release.Name }}
+Namespace: {{ .Release.Namespace }}
+
+1. Admin API (HTTPS):
+   kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "mirth.fullname" . }}-admin {{ .Values.service.admin.port }}:{{ .Values.service.admin.port }}
+   Open https://localhost:{{ .Values.service.admin.port }}
+
+2. MLLP endpoints (NodePort):
+{{- range .Values.service.mllp.ports }}
+   {{ .name }} -> NodePort {{ .nodePort | default "auto" }} (container :{{ .port }})
+{{- end }}
+
+3. Get admin credentials:
+   kubectl -n {{ .Release.Namespace }} get secret {{ .Values.adminCredentials.existingSecret }} -o jsonpath='{.data.{{ .Values.adminCredentials.usernameKey }}}' | base64 -d
+   kubectl -n {{ .Release.Namespace }} get secret {{ .Values.adminCredentials.existingSecret }} -o jsonpath='{.data.{{ .Values.adminCredentials.passwordKey }}}' | base64 -d
+
+4. Watch rollout:
+   kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "mirth.fullname" . }}

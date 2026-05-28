@@ -1,0 +1,25 @@
+# Recipe #47 — Mirth Connect Helm Chart
+# Tested on Mirth Connect 4.5.2 | Kubernetes 1.28+ | Helm 3.13+
+# Author: Nirmitee.io | License: MIT
+apiVersion: v2
+name: mirth-connect
+description: Production-grade Helm chart for Mirth Connect (NextGen Connect Integration Engine)
+type: application
+version: 1.0.0
+appVersion: "4.5.2"
+home: https://github.com/Nirmitee-tech/mirth-connect-cookbook
+sources:
+  - https://github.com/nextgenhealthcare/connect
+maintainers:
+  - name: Nirmitee.io
+    email: hello@nirmitee.io
+keywords:
+  - hl7
+  - fhir
+  - mirth
+  - integration
+  - healthcare
+  - mllp
+annotations:
+  category: Healthcare
+  licenses: MIT

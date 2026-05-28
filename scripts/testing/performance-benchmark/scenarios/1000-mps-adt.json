@@ -1,0 +1,8 @@
+{
+  "name": "1000mps-adt-ramp",
+  "message_type": "ADT_A01",
+  "target_rate": 1000,
+  "duration_seconds": 60,
+  "ramp_up_seconds": 15,
+  "concurrency": 200
+}

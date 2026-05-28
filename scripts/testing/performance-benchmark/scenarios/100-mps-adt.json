@@ -1,0 +1,8 @@
+{
+  "name": "100mps-adt-steady",
+  "message_type": "ADT_A01",
+  "target_rate": 100,
+  "duration_seconds": 30,
+  "ramp_up_seconds": 5,
+  "concurrency": 50
+}

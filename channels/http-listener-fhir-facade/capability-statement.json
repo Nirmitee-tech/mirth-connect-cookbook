@@ -1,0 +1,64 @@
+{
+  "resourceType": "CapabilityStatement",
+  "id": "mirth-fhir-facade",
+  "url": "http://example.org/CapabilityStatement/mirth-fhir-facade",
+  "version": "1.0.0",
+  "name": "MirthFHIRFacade",
+  "title": "Mirth Connect FHIR Facade over Legacy HL7v2 Database",
+  "status": "active",
+  "experimental": false,
+  "date": "2026-05-28",
+  "publisher": "Nirmitee.io",
+  "kind": "instance",
+  "software": {
+    "name": "Mirth Connect",
+    "version": "4.5.2"
+  },
+  "implementation": {
+    "description": "FHIR R4 read-only facade over a legacy HL7v2 RDBMS",
+    "url": "http://localhost:8089/fhir"
+  },
+  "fhirVersion": "4.0.1",
+  "format": ["application/fhir+json", "json"],
+  "rest": [
+    {
+      "mode": "server",
+      "documentation": "Limited FHIR endpoints exposed by the Mirth facade.",
+      "security": {
+        "cors": true,
+        "description": "Bearer token expected in production; open in dev."
+      },
+      "resource": [
+        {
+          "type": "Patient",
+          "profile": "http://hl7.org/fhir/StructureDefinition/Patient",
+          "interaction": [
+            { "code": "read", "documentation": "GET /fhir/Patient/{id} — looks up by MRN in legacy table" },
+            { "code": "create", "documentation": "POST /fhir/Patient — translates to INSERT in legacy table" },
+            { "code": "search-type", "documentation": "GET /fhir/Patient?identifier=..." }
+          ],
+          "searchParam": [
+            { "name": "identifier", "type": "token" },
+            { "name": "name", "type": "string" },
+            { "name": "birthdate", "type": "date" }
+          ]
+        },
+        {
+          "type": "Observation",
+          "profile": "http://hl7.org/fhir/StructureDefinition/Observation",
+          "interaction": [
+            { "code": "search-type", "documentation": "GET /fhir/Observation?subject=Patient/{id}" }
+          ],
+          "searchParam": [
+            { "name": "subject", "type": "reference" },
+            { "name": "code", "type": "token" },
+            { "name": "date", "type": "date" }
+          ]
+        }
+      ],
+      "interaction": [
+        { "code": "search-system" }
+      ]
+    }
+  ]
+}

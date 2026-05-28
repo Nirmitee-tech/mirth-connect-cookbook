@@ -1,0 +1,205 @@
+# Recipe #47 — Mirth Connect Helm Chart values
+# Tested on Mirth Connect 4.5.2
+# Author: Nirmitee.io | License: MIT
+
+# -----------------------------------------------------------------------------
+# Image
+# -----------------------------------------------------------------------------
+image:
+  repository: nextgenhealthcare/connect
+  tag: "4.5.2"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# -----------------------------------------------------------------------------
+# Replicas — Mirth runs as a StatefulSet because each pod has a stable
+# identity (mirth-0, mirth-1, ...) and its own appdata PVC. The DB is
+# the shared state — see recipe #46 for the active-active pattern.
+# -----------------------------------------------------------------------------
+replicaCount: 2
+
+# -----------------------------------------------------------------------------
+# Resources & JVM
+# -----------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
+  limits:
+    cpu: 2000m
+    memory: 4Gi
+
+jvm:
+  # Mirth uses 75% of container memory by default; pin it for predictability.
+  heapMin: "1024m"
+  heapMax: "3072m"
+  extraOpts: "-XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+
+# -----------------------------------------------------------------------------
+# Services & networking
+# -----------------------------------------------------------------------------
+service:
+  # Admin / HTTPS API
+  admin:
+    type: ClusterIP
+    port: 8443
+  # MLLP listeners — exposed via NodePort or LoadBalancer for external EHRs
+  mllp:
+    type: NodePort
+    # Each entry creates one Service port mapped 1:1 onto the pod
+    ports:
+      - name: mllp-adt
+        port: 6661
+        nodePort: 30661
+      - name: mllp-oru
+        port: 6662
+        nodePort: 30662
+      - name: mllp-orm
+        port: 6663
+        nodePort: 30663
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: mirth.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: mirth-tls
+      hosts:
+        - mirth.example.com
+
+# -----------------------------------------------------------------------------
+# Persistence — appdata holds keystore, channel exports, attachments
+# -----------------------------------------------------------------------------
+persistence:
+  enabled: true
+  storageClass: ""        # use cluster default
+  accessMode: ReadWriteOnce
+  size: 20Gi
+
+# -----------------------------------------------------------------------------
+# Database connection. The chart does NOT deploy PostgreSQL —
+# point this at managed RDS / Cloud SQL / Patroni / recipe #46.
+# -----------------------------------------------------------------------------
+database:
+  type: postgres
+  host: mirth-postgres
+  port: 5432
+  name: mirthdb
+  # Secret containing username + password keys.
+  # Use External Secrets Operator to source from AWS Secrets Manager / Vault.
+  existingSecret: mirth-db-credentials
+  usernameKey: username
+  passwordKey: password
+  maxConnections: 20
+
+# -----------------------------------------------------------------------------
+# Mirth admin credentials secret
+# -----------------------------------------------------------------------------
+adminCredentials:
+  existingSecret: mirth-admin-credentials
+  usernameKey: username
+  passwordKey: password
+
+# -----------------------------------------------------------------------------
+# mirth.properties overrides (rendered into a ConfigMap)
+# -----------------------------------------------------------------------------
+mirthProperties:
+  server.startupdeploy: "false"
+  database.enable-read-write-split: "false"
+  donkey.statsupdateinterval: "1000"
+  http.host: "0.0.0.0"
+  https.host: "0.0.0.0"
+
+# -----------------------------------------------------------------------------
+# Custom JAR libraries — fetched by an initContainer
+# -----------------------------------------------------------------------------
+customLibJars: []
+  # - name: postgresql-driver
+  #   url: https://jdbc.postgresql.org/download/postgresql-42.7.3.jar
+  #   sha256: "abcdef..."
+  # - name: hapi-fhir-base
+  #   url: https://repo1.maven.org/maven2/ca/uhn/hapi/fhir/hapi-fhir-base/7.0.0/hapi-fhir-base-7.0.0.jar
+  #   sha256: "fedcba..."
+
+# -----------------------------------------------------------------------------
+# Autoscaling
+# -----------------------------------------------------------------------------
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# -----------------------------------------------------------------------------
+# Pod Disruption Budget — survive one pod being evicted at a time
+# -----------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# -----------------------------------------------------------------------------
+# Security context — non-root, read-only fs where possible
+# -----------------------------------------------------------------------------
+podSecurityContext:
+  fsGroup: 1000
+  runAsNonRoot: true
+  runAsUser: 1000
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false   # Mirth writes to /opt/connect/logs
+  capabilities:
+    drop: ["ALL"]
+
+# -----------------------------------------------------------------------------
+# Service account
+# -----------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # For IRSA on EKS:
+  #   eks.amazonaws.com/role-arn: arn:aws:iam::1234:role/mirth-pod-role
+
+# -----------------------------------------------------------------------------
+# Monitoring sidecar (Prometheus JMX exporter)
+# Set enabled=true to scrape Mirth JVM/MBeans metrics on :9404
+# -----------------------------------------------------------------------------
+monitoring:
+  enabled: false
+  jmxExporter:
+    image: bitnami/jmx-exporter:0.20.0
+    port: 9404
+  serviceMonitor:
+    enabled: false
+    namespace: ""
+    labels: {}
+    interval: 30s
+
+# -----------------------------------------------------------------------------
+# Probes
+# -----------------------------------------------------------------------------
+probes:
+  liveness:
+    initialDelaySeconds: 120
+    periodSeconds: 30
+    timeoutSeconds: 10
+    failureThreshold: 3
+  readiness:
+    initialDelaySeconds: 60
+    periodSeconds: 15
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+priorityClassName: ""
+extraEnv: []

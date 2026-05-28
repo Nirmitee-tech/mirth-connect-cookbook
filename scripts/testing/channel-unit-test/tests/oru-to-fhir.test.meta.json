@@ -1,0 +1,5 @@
+{
+  "transformer": "transformers/oru-to-fhir-diagnosticreport/transformer.js",
+  "fixture_hl7": "oru-cbc.hl7",
+  "expected": "oru-cbc.expected.json"
+}

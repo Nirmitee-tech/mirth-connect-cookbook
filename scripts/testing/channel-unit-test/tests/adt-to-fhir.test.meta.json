@@ -1,0 +1,5 @@
+{
+  "transformer": "transformers/adt-to-fhir-bundle/transformer.js",
+  "fixture_hl7": "adt-a01-sepsis.hl7",
+  "expected": "adt-a01-sepsis.expected.json"
+}
