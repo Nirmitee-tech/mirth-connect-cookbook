@@ -57,19 +57,19 @@ Status legend: ✅ tested & committed | 🚧 in progress | 📋 planned
 | 35 | backup-restore-automation | 📋 | Operations |
 | 36 | channel-status-watchdog | 📋 | Operations |
 | 37 | loki-log-aggregation | 📋 | Operations |
-| 38 | performance-benchmark-suite | 📋 | Testing |
-| 39 | channel-unit-test-framework | 📋 | Testing |
-| 40 | us-core-validation-channel | 📋 | Testing |
+| 38 | [performance-benchmark-suite](scripts/testing/performance-benchmark/) | 🚧 | Testing |
+| 39 | [channel-unit-test-framework](scripts/testing/channel-unit-test/) | 🚧 | Testing |
+| 40 | [us-core-validation-channel](channels/us-core-validation/) | 🚧 | Testing |
 
 ## Tier 4 — Integrations & DevOps (41-50)
 
 | # | Recipe | Status | Category |
 |---|---|:---:|---|
-| 41 | epic-bridges-mllp-adapter | 📋 | Integrations |
-| 42 | cerner-millennium-fhir-r4-pull | 📋 | Integrations |
-| 43 | redox-app-adapter | 📋 | Integrations |
-| 44 | health-gorilla-bulk-data | 📋 | Integrations |
-| 45 | openemr-hl7v2-bidirectional | 📋 | Integrations |
+| 41 | [epic-bridges-mllp-adapter](channels/epic-bridges-mllp/) | 🚧 | Integrations |
+| 42 | [cerner-millennium-fhir-r4-pull](channels/cerner-millennium-fhir-pull/) | 🚧 | Integrations |
+| 43 | [redox-app-adapter](channels/redox-app-adapter/) | 🚧 | Integrations |
+| 44 | [health-gorilla-bulk-data](channels/health-gorilla-bulk-data/) | 🚧 | Integrations |
+| 45 | [openemr-hl7v2-bidirectional](channels/openemr-hl7v2-bidirectional/) | 🚧 | Integrations |
 | 46 | [active-active-cluster-postgres](docker/active-active-cluster/) | 🚧 | HA & DR |
 | 47 | [kubernetes-helm-chart](deploy/helm/mirth-connect/) | 🚧 | DevOps |
 | 48 | [terraform-aws-mirth-module](deploy/terraform/aws-mirth/) | 🚧 | DevOps |

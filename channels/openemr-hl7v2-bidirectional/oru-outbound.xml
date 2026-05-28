@@ -1,0 +1,592 @@
+<channel version="4.5.2">
+  <id>bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb</id>
+  <nextMetaDataId>2</nextMetaDataId>
+  <name>OpenEMR ORU Outbound</name>
+  <description>Builds ORU^R01 from channelMap.labResultJson and dispatches to OpenEMR HL7 receiver via MLLP.</description>
+  <revision>1</revision>
+  <sourceConnector version="4.5.2">
+    <metaDataId>0</metaDataId>
+    <name>sourceConnector</name>
+    <properties class="com.mirth.connect.connectors.vm.VmReceiverProperties" version="4.5.2">
+      <pluginProperties/>
+      <sourceConnectorProperties version="4.5.2">
+        <responseVariable>None</responseVariable>
+        <respondAfterProcessing>true</respondAfterProcessing>
+        <processBatch>false</processBatch>
+        <firstResponse>false</firstResponse>
+        <processingThreads>1</processingThreads>
+        <resourceIds class="linked-hash-map">
+          <entry>
+            <string>Default Resource</string>
+            <string>[Default Resource]</string>
+          </entry>
+        </resourceIds>
+        <queueBufferSize>1000</queueBufferSize>
+      </sourceConnectorProperties>
+    </properties>
+    <transformer version="4.5.2">
+      <elements>
+        <com.mirth.connect.plugins.javascriptstep.JavaScriptStep version="4.5.2">
+          <name>OpenEMR ORU builder</name>
+          <sequenceNumber>0</sequenceNumber>
+          <enabled>true</enabled>
+          <script>/**
+ * OpenEMR ORU Outbound Transformer
+ *
+ * Builds an ORU^R01 lab-result message tailored for OpenEMR&apos;s HL7
+ * receiver. Differences from a &quot;generic&quot; ORU:
+ *
+ *   - OpenEMR matches patients on PID-2 (external_id), not PID-3.
+ *     Channel must write the patient MRN to PID-2 *and* PID-3 to
+ *     survive both lookup paths.
+ *   - OpenEMR rejects messages whose MSH-3 / MSH-4 don&apos;t match the
+ *     interface registration. Configure via the Configuration Map.
+ *   - OpenEMR&apos;s HL7 module is picky about field separators in OBX-5
+ *     for repeated values — use &apos;~&apos; (HL7 repetition) not &apos;,&apos; or &apos;\n&apos;.
+ *
+ * Inputs (channelMap):
+ *   labResultJson - JSON object {
+ *      patient: { mrn, lastName, firstName, dob, gender },
+ *      order:   { orderId, code, name, codingSystem },
+ *      results: [{ loinc, name, value, units, refRange, abnormalFlag }],
+ *      observationDate: &apos;YYYYMMDDHHmmss&apos;
+ *   }
+ *
+ * Outputs:
+ *   outboundOru   - the HL7v2 message string (template = ${outboundOru})
+ *
+ * Tested on: Mirth Connect 4.5.2 with OpenEMR 7.0.2 HL7 module
+ * Author: Nirmitee.io | License: MIT
+ */
+
+function pad(s, n) {
+    s = &apos;&apos; + (s || &apos;&apos;);
+    while (s.length &lt; n) s = &apos;0&apos; + s;
+    return s;
+}
+
+function nowTs() {
+    var d = new Date();
+    return d.getFullYear() +
+        pad(d.getMonth() + 1, 2) + pad(d.getDate(), 2) +
+        pad(d.getHours(), 2) + pad(d.getMinutes(), 2) + pad(d.getSeconds(), 2);
+}
+
+function escapeHL7(s) {
+    if (s === null || s === undefined) return &apos;&apos;;
+    return (&apos;&apos; + s)
+        .replace(/\\/g, &apos;\\E\\&apos;)
+        .replace(/\|/g, &apos;\\F\\&apos;)
+        .replace(/\^/g, &apos;\\S\\&apos;)
+        .replace(/~/g,  &apos;\\R\\&apos;)
+        .replace(/&amp;/g,  &apos;\\T\\&apos;);
+}
+
+var data = channelMap.get(&apos;labResultJson&apos;);
+if (!data) {
+    logger.error(&apos;channelMap.labResultJson is empty&apos;);
+    return;
+}
+
+var lab = JSON.parse(data + &apos;&apos;);
+
+// === Configured sender/receiver — must match OpenEMR HL7 interface ===
+var sendingApp      = $cfg(&apos;openemr.sending.app&apos;)      || &apos;MIRTH&apos;;
+var sendingFacility = $cfg(&apos;openemr.sending.facility&apos;) || &apos;HUB&apos;;
+var receivingApp    = $cfg(&apos;openemr.receiving.app&apos;)    || &apos;OPENEMR&apos;;
+var receivingFacility = $cfg(&apos;openemr.receiving.facility&apos;) || &apos;CLINIC&apos;;
+
+var ts = nowTs();
+var ctrlId = &apos;ORU&apos; + ts + Math.floor(Math.random() * 1000);
+
+// MSH
+var msh = [&apos;MSH&apos;, &apos;^~\\&amp;&apos;,
+    sendingApp, sendingFacility, receivingApp, receivingFacility,
+    ts, &apos;&apos;, &apos;ORU^R01^ORU_R01&apos;, ctrlId, &apos;P&apos;, &apos;2.5.1&apos;
+].join(&apos;|&apos;);
+
+// PID — OpenEMR quirk: write MRN to BOTH PID-2 and PID-3
+var p = lab.patient || {};
+var mrn = p.mrn || &apos;&apos;;
+var pid = [&apos;PID&apos;,
+    &apos;1&apos;,                                                 // PID-1 set id
+    escapeHL7(mrn),                                      // PID-2 OpenEMR external_id
+    escapeHL7(mrn) + &apos;^^^&apos; + sendingFacility + &apos;^MR&apos;,    // PID-3 standard MRN
+    &apos;&apos;,                                                  // PID-4 alternate
+    escapeHL7(p.lastName || &apos;&apos;) + &apos;^&apos; + escapeHL7(p.firstName || &apos;&apos;),  // PID-5
+    &apos;&apos;,                                                  // PID-6
+    p.dob || &apos;&apos;,                                         // PID-7
+    p.gender || &apos;&apos;                                       // PID-8
+].join(&apos;|&apos;);
+
+// OBR
+var o = lab.order || {};
+var obr = [&apos;OBR&apos;,
+    &apos;1&apos;,                                                 // OBR-1
+    escapeHL7(o.orderId || &apos;&apos;),                          // OBR-2 placer
+    &apos;&apos;,                                                  // OBR-3 filler
+    escapeHL7(o.code || &apos;&apos;) + &apos;^&apos; + escapeHL7(o.name || &apos;&apos;) + &apos;^&apos; + (o.codingSystem || &apos;LN&apos;),
+    &apos;&apos;, &apos;&apos;, lab.observationDate || ts, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;F&apos;
+].join(&apos;|&apos;);
+
+// OBX (one per result; use &apos;~&apos; for repeating values in OBX-5)
+var obxList = [];
+var results = lab.results || [];
+for (var i = 0; i &lt; results.length; i++) {
+    var r = results[i];
+    var obxVal;
+    if (r.value &amp;&amp; Array.isArray(r.value)) {
+        // OpenEMR-safe: &apos;~&apos; separator for repeated values
+        obxVal = r.value.map(escapeHL7).join(&apos;~&apos;);
+    } else {
+        obxVal = escapeHL7(r.value);
+    }
+    var valueType = (r.value &amp;&amp; Array.isArray(r.value)) ? &apos;ST&apos; :
+                    (isNaN(parseFloat(r.value)) ? &apos;ST&apos; : &apos;NM&apos;);
+    var obx = [&apos;OBX&apos;,
+        &apos;&apos; + (i + 1),                                    // OBX-1 set id
+        valueType,                                       // OBX-2 value type
+        escapeHL7(r.loinc) + &apos;^&apos; + escapeHL7(r.name) + &apos;^LN&apos;,  // OBX-3
+        &apos;&apos;,                                              // OBX-4 sub-id
+        obxVal,                                          // OBX-5 value
+        escapeHL7(r.units || &apos;&apos;),                        // OBX-6 units
+        escapeHL7(r.refRange || &apos;&apos;),                     // OBX-7
+        escapeHL7(r.abnormalFlag || &apos;&apos;),                 // OBX-8
+        &apos;&apos;, &apos;&apos;,                                          // OBX-9, OBX-10
+        &apos;F&apos;                                              // OBX-11 status
+    ].join(&apos;|&apos;);
+    obxList.push(obx);
+}
+
+var oruMessage = [msh, pid, obr].concat(obxList).join(&apos;\r&apos;) + &apos;\r&apos;;
+channelMap.put(&apos;outboundOru&apos;, oruMessage);
+channelMap.put(&apos;oruControlId&apos;, ctrlId);
+
+logger.info(&apos;OpenEMR ORU outbound built: ctrlId=&apos; + ctrlId +
+            &apos; patient=&apos; + mrn +
+            &apos; order=&apos; + (o.orderId || &apos;?&apos;) +
+            &apos; observations=&apos; + results.length);
+</script>
+        </com.mirth.connect.plugins.javascriptstep.JavaScriptStep>
+      </elements>
+      <inboundTemplate encoding="base64"></inboundTemplate>
+      <outboundTemplate encoding="base64"></outboundTemplate>
+      <inboundDataType>HL7V2</inboundDataType>
+      <outboundDataType>HL7V2</outboundDataType>
+      <inboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+        <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+          <handleRepetitions>true</handleRepetitions>
+          <handleSubcomponents>true</handleSubcomponents>
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <stripNamespaces>false</stripNamespaces>
+          <segmentDelimiter>\r</segmentDelimiter>
+          <convertLineBreaks>true</convertLineBreaks>
+        </serializationProperties>
+        <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <segmentDelimiter>\r</segmentDelimiter>
+        </deserializationProperties>
+        <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+          <splitType>MSH_Segment</splitType>
+          <batchScript></batchScript>
+        </batchProperties>
+        <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+          <segmentDelimiter>\r</segmentDelimiter>
+          <successfulACKCode>AA</successfulACKCode>
+          <successfulACKMessage></successfulACKMessage>
+          <errorACKCode>AE</errorACKCode>
+          <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+          <rejectedACKCode>AR</rejectedACKCode>
+          <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+          <msh15ACKAccept>false</msh15ACKAccept>
+          <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+        </responseGenerationProperties>
+        <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+          <successfulACKCode>AA,CA</successfulACKCode>
+          <errorACKCode>AE,CE</errorACKCode>
+          <rejectedACKCode>AR,CR</rejectedACKCode>
+          <validateMessageControlId>true</validateMessageControlId>
+          <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+          <originalIdMapVariable></originalIdMapVariable>
+        </responseValidationProperties>
+      </inboundProperties>
+      <outboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+        <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+          <handleRepetitions>true</handleRepetitions>
+          <handleSubcomponents>true</handleSubcomponents>
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <stripNamespaces>false</stripNamespaces>
+          <segmentDelimiter>\r</segmentDelimiter>
+          <convertLineBreaks>true</convertLineBreaks>
+        </serializationProperties>
+        <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <segmentDelimiter>\r</segmentDelimiter>
+        </deserializationProperties>
+        <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+          <splitType>MSH_Segment</splitType>
+          <batchScript></batchScript>
+        </batchProperties>
+        <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+          <segmentDelimiter>\r</segmentDelimiter>
+          <successfulACKCode>AA</successfulACKCode>
+          <successfulACKMessage></successfulACKMessage>
+          <errorACKCode>AE</errorACKCode>
+          <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+          <rejectedACKCode>AR</rejectedACKCode>
+          <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+          <msh15ACKAccept>false</msh15ACKAccept>
+          <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+        </responseGenerationProperties>
+        <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+          <successfulACKCode>AA,CA</successfulACKCode>
+          <errorACKCode>AE,CE</errorACKCode>
+          <rejectedACKCode>AR,CR</rejectedACKCode>
+          <validateMessageControlId>true</validateMessageControlId>
+          <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+          <originalIdMapVariable></originalIdMapVariable>
+        </responseValidationProperties>
+      </outboundProperties>
+    </transformer>
+    <filter version="4.5.2">
+      <elements/>
+    </filter>
+    <transportName>Channel Reader</transportName>
+    <mode>SOURCE</mode>
+    <enabled>true</enabled>
+    <waitForPrevious>true</waitForPrevious>
+  </sourceConnector>
+  <destinationConnectors>
+    <connector version="4.5.2">
+      <metaDataId>1</metaDataId>
+      <name>OpenEMR MLLP</name>
+      <properties class="com.mirth.connect.connectors.tcp.TcpDispatcherProperties" version="4.5.2">
+        <pluginProperties/>
+        <destinationConnectorProperties version="4.5.2">
+          <queueEnabled>true</queueEnabled>
+          <sendFirst>false</sendFirst>
+          <retryIntervalMillis>10000</retryIntervalMillis>
+          <regenerateTemplate>false</regenerateTemplate>
+          <retryCount>3</retryCount>
+          <rotate>false</rotate>
+          <includeFilterTransformer>false</includeFilterTransformer>
+          <threadCount>1</threadCount>
+          <threadAssignmentVariable></threadAssignmentVariable>
+          <validateResponse>true</validateResponse>
+          <resourceIds class="linked-hash-map">
+            <entry>
+              <string>Default Resource</string>
+              <string>[Default Resource]</string>
+            </entry>
+          </resourceIds>
+          <queueBufferSize>1000</queueBufferSize>
+          <reattachAttachments>true</reattachAttachments>
+        </destinationConnectorProperties>
+        <transmissionModeProperties class="com.mirth.connect.plugins.mllpmode.MLLPModeProperties">
+          <pluginPointName>MLLP</pluginPointName>
+          <startOfMessageBytes>0B</startOfMessageBytes>
+          <endOfMessageBytes>1C0D</endOfMessageBytes>
+          <useMLLPv2>false</useMLLPv2>
+          <ackBytes>06</ackBytes>
+          <nackBytes>15</nackBytes>
+          <maxRetries>2</maxRetries>
+        </transmissionModeProperties>
+        <remoteAddress>${openemr.host}</remoteAddress>
+        <remotePort>${openemr.port}</remotePort>
+        <overrideLocalBinding>false</overrideLocalBinding>
+        <reconnectInterval>5000</reconnectInterval>
+        <receiveTimeout>30000</receiveTimeout>
+        <bufferSize>65536</bufferSize>
+        <keepConnectionOpen>true</keepConnectionOpen>
+        <checkRemoteHost>true</checkRemoteHost>
+        <responseTimeout>30000</responseTimeout>
+        <ignoreResponse>false</ignoreResponse>
+        <queueOnResponseTimeout>true</queueOnResponseTimeout>
+        <dataTypeBinary>false</dataTypeBinary>
+        <charsetEncoding>DEFAULT_ENCODING</charsetEncoding>
+        <template>${outboundOru}</template>
+        <localAddress>0.0.0.0</localAddress>
+        <localPort>0</localPort>
+      </properties>
+    <transformer version="4.5.2">
+      <elements>
+        <com.mirth.connect.plugins.javascriptstep.JavaScriptStep version="4.5.2">
+          <name>OpenEMR ORU builder</name>
+          <sequenceNumber>0</sequenceNumber>
+          <enabled>true</enabled>
+          <script>/**
+ * OpenEMR ORU Outbound Transformer
+ *
+ * Builds an ORU^R01 lab-result message tailored for OpenEMR&apos;s HL7
+ * receiver. Differences from a &quot;generic&quot; ORU:
+ *
+ *   - OpenEMR matches patients on PID-2 (external_id), not PID-3.
+ *     Channel must write the patient MRN to PID-2 *and* PID-3 to
+ *     survive both lookup paths.
+ *   - OpenEMR rejects messages whose MSH-3 / MSH-4 don&apos;t match the
+ *     interface registration. Configure via the Configuration Map.
+ *   - OpenEMR&apos;s HL7 module is picky about field separators in OBX-5
+ *     for repeated values — use &apos;~&apos; (HL7 repetition) not &apos;,&apos; or &apos;\n&apos;.
+ *
+ * Inputs (channelMap):
+ *   labResultJson - JSON object {
+ *      patient: { mrn, lastName, firstName, dob, gender },
+ *      order:   { orderId, code, name, codingSystem },
+ *      results: [{ loinc, name, value, units, refRange, abnormalFlag }],
+ *      observationDate: &apos;YYYYMMDDHHmmss&apos;
+ *   }
+ *
+ * Outputs:
+ *   outboundOru   - the HL7v2 message string (template = ${outboundOru})
+ *
+ * Tested on: Mirth Connect 4.5.2 with OpenEMR 7.0.2 HL7 module
+ * Author: Nirmitee.io | License: MIT
+ */
+
+function pad(s, n) {
+    s = &apos;&apos; + (s || &apos;&apos;);
+    while (s.length &lt; n) s = &apos;0&apos; + s;
+    return s;
+}
+
+function nowTs() {
+    var d = new Date();
+    return d.getFullYear() +
+        pad(d.getMonth() + 1, 2) + pad(d.getDate(), 2) +
+        pad(d.getHours(), 2) + pad(d.getMinutes(), 2) + pad(d.getSeconds(), 2);
+}
+
+function escapeHL7(s) {
+    if (s === null || s === undefined) return &apos;&apos;;
+    return (&apos;&apos; + s)
+        .replace(/\\/g, &apos;\\E\\&apos;)
+        .replace(/\|/g, &apos;\\F\\&apos;)
+        .replace(/\^/g, &apos;\\S\\&apos;)
+        .replace(/~/g,  &apos;\\R\\&apos;)
+        .replace(/&amp;/g,  &apos;\\T\\&apos;);
+}
+
+var data = channelMap.get(&apos;labResultJson&apos;);
+if (!data) {
+    logger.error(&apos;channelMap.labResultJson is empty&apos;);
+    return;
+}
+
+var lab = JSON.parse(data + &apos;&apos;);
+
+// === Configured sender/receiver — must match OpenEMR HL7 interface ===
+var sendingApp      = $cfg(&apos;openemr.sending.app&apos;)      || &apos;MIRTH&apos;;
+var sendingFacility = $cfg(&apos;openemr.sending.facility&apos;) || &apos;HUB&apos;;
+var receivingApp    = $cfg(&apos;openemr.receiving.app&apos;)    || &apos;OPENEMR&apos;;
+var receivingFacility = $cfg(&apos;openemr.receiving.facility&apos;) || &apos;CLINIC&apos;;
+
+var ts = nowTs();
+var ctrlId = &apos;ORU&apos; + ts + Math.floor(Math.random() * 1000);
+
+// MSH
+var msh = [&apos;MSH&apos;, &apos;^~\\&amp;&apos;,
+    sendingApp, sendingFacility, receivingApp, receivingFacility,
+    ts, &apos;&apos;, &apos;ORU^R01^ORU_R01&apos;, ctrlId, &apos;P&apos;, &apos;2.5.1&apos;
+].join(&apos;|&apos;);
+
+// PID — OpenEMR quirk: write MRN to BOTH PID-2 and PID-3
+var p = lab.patient || {};
+var mrn = p.mrn || &apos;&apos;;
+var pid = [&apos;PID&apos;,
+    &apos;1&apos;,                                                 // PID-1 set id
+    escapeHL7(mrn),                                      // PID-2 OpenEMR external_id
+    escapeHL7(mrn) + &apos;^^^&apos; + sendingFacility + &apos;^MR&apos;,    // PID-3 standard MRN
+    &apos;&apos;,                                                  // PID-4 alternate
+    escapeHL7(p.lastName || &apos;&apos;) + &apos;^&apos; + escapeHL7(p.firstName || &apos;&apos;),  // PID-5
+    &apos;&apos;,                                                  // PID-6
+    p.dob || &apos;&apos;,                                         // PID-7
+    p.gender || &apos;&apos;                                       // PID-8
+].join(&apos;|&apos;);
+
+// OBR
+var o = lab.order || {};
+var obr = [&apos;OBR&apos;,
+    &apos;1&apos;,                                                 // OBR-1
+    escapeHL7(o.orderId || &apos;&apos;),                          // OBR-2 placer
+    &apos;&apos;,                                                  // OBR-3 filler
+    escapeHL7(o.code || &apos;&apos;) + &apos;^&apos; + escapeHL7(o.name || &apos;&apos;) + &apos;^&apos; + (o.codingSystem || &apos;LN&apos;),
+    &apos;&apos;, &apos;&apos;, lab.observationDate || ts, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;&apos;, &apos;F&apos;
+].join(&apos;|&apos;);
+
+// OBX (one per result; use &apos;~&apos; for repeating values in OBX-5)
+var obxList = [];
+var results = lab.results || [];
+for (var i = 0; i &lt; results.length; i++) {
+    var r = results[i];
+    var obxVal;
+    if (r.value &amp;&amp; Array.isArray(r.value)) {
+        // OpenEMR-safe: &apos;~&apos; separator for repeated values
+        obxVal = r.value.map(escapeHL7).join(&apos;~&apos;);
+    } else {
+        obxVal = escapeHL7(r.value);
+    }
+    var valueType = (r.value &amp;&amp; Array.isArray(r.value)) ? &apos;ST&apos; :
+                    (isNaN(parseFloat(r.value)) ? &apos;ST&apos; : &apos;NM&apos;);
+    var obx = [&apos;OBX&apos;,
+        &apos;&apos; + (i + 1),                                    // OBX-1 set id
+        valueType,                                       // OBX-2 value type
+        escapeHL7(r.loinc) + &apos;^&apos; + escapeHL7(r.name) + &apos;^LN&apos;,  // OBX-3
+        &apos;&apos;,                                              // OBX-4 sub-id
+        obxVal,                                          // OBX-5 value
+        escapeHL7(r.units || &apos;&apos;),                        // OBX-6 units
+        escapeHL7(r.refRange || &apos;&apos;),                     // OBX-7
+        escapeHL7(r.abnormalFlag || &apos;&apos;),                 // OBX-8
+        &apos;&apos;, &apos;&apos;,                                          // OBX-9, OBX-10
+        &apos;F&apos;                                              // OBX-11 status
+    ].join(&apos;|&apos;);
+    obxList.push(obx);
+}
+
+var oruMessage = [msh, pid, obr].concat(obxList).join(&apos;\r&apos;) + &apos;\r&apos;;
+channelMap.put(&apos;outboundOru&apos;, oruMessage);
+channelMap.put(&apos;oruControlId&apos;, ctrlId);
+
+logger.info(&apos;OpenEMR ORU outbound built: ctrlId=&apos; + ctrlId +
+            &apos; patient=&apos; + mrn +
+            &apos; order=&apos; + (o.orderId || &apos;?&apos;) +
+            &apos; observations=&apos; + results.length);
+</script>
+        </com.mirth.connect.plugins.javascriptstep.JavaScriptStep>
+      </elements>
+      <inboundTemplate encoding="base64"></inboundTemplate>
+      <outboundTemplate encoding="base64"></outboundTemplate>
+      <inboundDataType>HL7V2</inboundDataType>
+      <outboundDataType>HL7V2</outboundDataType>
+      <inboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+        <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+          <handleRepetitions>true</handleRepetitions>
+          <handleSubcomponents>true</handleSubcomponents>
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <stripNamespaces>false</stripNamespaces>
+          <segmentDelimiter>\r</segmentDelimiter>
+          <convertLineBreaks>true</convertLineBreaks>
+        </serializationProperties>
+        <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <segmentDelimiter>\r</segmentDelimiter>
+        </deserializationProperties>
+        <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+          <splitType>MSH_Segment</splitType>
+          <batchScript></batchScript>
+        </batchProperties>
+        <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+          <segmentDelimiter>\r</segmentDelimiter>
+          <successfulACKCode>AA</successfulACKCode>
+          <successfulACKMessage></successfulACKMessage>
+          <errorACKCode>AE</errorACKCode>
+          <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+          <rejectedACKCode>AR</rejectedACKCode>
+          <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+          <msh15ACKAccept>false</msh15ACKAccept>
+          <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+        </responseGenerationProperties>
+        <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+          <successfulACKCode>AA,CA</successfulACKCode>
+          <errorACKCode>AE,CE</errorACKCode>
+          <rejectedACKCode>AR,CR</rejectedACKCode>
+          <validateMessageControlId>true</validateMessageControlId>
+          <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+          <originalIdMapVariable></originalIdMapVariable>
+        </responseValidationProperties>
+      </inboundProperties>
+      <outboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+        <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+          <handleRepetitions>true</handleRepetitions>
+          <handleSubcomponents>true</handleSubcomponents>
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <stripNamespaces>false</stripNamespaces>
+          <segmentDelimiter>\r</segmentDelimiter>
+          <convertLineBreaks>true</convertLineBreaks>
+        </serializationProperties>
+        <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <segmentDelimiter>\r</segmentDelimiter>
+        </deserializationProperties>
+        <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+          <splitType>MSH_Segment</splitType>
+          <batchScript></batchScript>
+        </batchProperties>
+        <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+          <segmentDelimiter>\r</segmentDelimiter>
+          <successfulACKCode>AA</successfulACKCode>
+          <successfulACKMessage></successfulACKMessage>
+          <errorACKCode>AE</errorACKCode>
+          <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+          <rejectedACKCode>AR</rejectedACKCode>
+          <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+          <msh15ACKAccept>false</msh15ACKAccept>
+          <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+        </responseGenerationProperties>
+        <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+          <successfulACKCode>AA,CA</successfulACKCode>
+          <errorACKCode>AE,CE</errorACKCode>
+          <rejectedACKCode>AR,CR</rejectedACKCode>
+          <validateMessageControlId>true</validateMessageControlId>
+          <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+          <originalIdMapVariable></originalIdMapVariable>
+        </responseValidationProperties>
+      </outboundProperties>
+    </transformer>
+      <responseTransformer version="4.5.2">
+        <elements/>
+        <inboundDataType>HL7V2</inboundDataType>
+        <outboundDataType>HL7V2</outboundDataType>
+      </responseTransformer>
+      <filter version="4.5.2">
+        <elements/>
+      </filter>
+      <transportName>TCP Sender</transportName>
+      <mode>DESTINATION</mode>
+      <enabled>true</enabled>
+      <waitForPrevious>true</waitForPrevious>
+    </connector>
+  </destinationConnectors>
+  <preprocessingScript>return message;</preprocessingScript>
+  <postprocessingScript>return;</postprocessingScript>
+  <deployScript>return;</deployScript>
+  <undeployScript>return;</undeployScript>
+  <properties version="4.5.2">
+    <clearGlobalChannelMap>false</clearGlobalChannelMap>
+    <messageStorageMode>DEVELOPMENT</messageStorageMode>
+    <encryptData>false</encryptData>
+    <encryptAttachments>false</encryptAttachments>
+    <encryptCustomMetaData>false</encryptCustomMetaData>
+    <removeContentOnCompletion>false</removeContentOnCompletion>
+    <removeOnlyFilteredOnCompletion>false</removeOnlyFilteredOnCompletion>
+    <removeAttachmentsOnCompletion>false</removeAttachmentsOnCompletion>
+    <initialState>STARTED</initialState>
+    <storeAttachments>true</storeAttachments>
+    <metaDataColumns/>
+    <attachmentProperties version="4.5.2">
+      <type>None</type>
+      <properties/>
+    </attachmentProperties>
+    <resourceIds class="linked-hash-map">
+      <entry>
+        <string>Default Resource</string>
+        <string>[Default Resource]</string>
+      </entry>
+    </resourceIds>
+  </properties>
+  <exportData>
+    <metadata>
+      <enabled>true</enabled>
+    </metadata>
+    <dependentIds/>
+    <dependencyIds/>
+    <channelTags/>
+  </exportData>
+</channel>

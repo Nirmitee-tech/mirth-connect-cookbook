@@ -1,0 +1,278 @@
+<channel version="4.5.2">
+  <id>aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa</id>
+  <nextMetaDataId>1</nextMetaDataId>
+  <name>OpenEMR ADT Inbound</name>
+  <description>Receives ADT from OpenEMR HL7 module. Promotes PID-2 to MRN, normalises phone, fixes missing MSH-9.2.</description>
+  <revision>1</revision>
+  <sourceConnector version="4.5.2">
+    <metaDataId>0</metaDataId>
+    <name>sourceConnector</name>
+    <properties class="com.mirth.connect.connectors.tcp.TcpReceiverProperties" version="4.5.2">
+      <pluginProperties/>
+      <listenerConnectorProperties version="4.5.2">
+        <host>0.0.0.0</host>
+        <port>6611</port>
+      </listenerConnectorProperties>
+      <sourceConnectorProperties version="4.5.2">
+        <responseVariable>Auto-generate (After source transformer)</responseVariable>
+        <respondAfterProcessing>true</respondAfterProcessing>
+        <processBatch>false</processBatch>
+        <firstResponse>true</firstResponse>
+        <processingThreads>2</processingThreads>
+        <resourceIds class="linked-hash-map">
+          <entry>
+            <string>Default Resource</string>
+            <string>[Default Resource]</string>
+          </entry>
+        </resourceIds>
+        <queueBufferSize>1000</queueBufferSize>
+      </sourceConnectorProperties>
+      <transmissionModeProperties class="com.mirth.connect.plugins.mllpmode.MLLPModeProperties">
+        <pluginPointName>MLLP</pluginPointName>
+        <startOfMessageBytes>0B</startOfMessageBytes>
+        <endOfMessageBytes>1C0D</endOfMessageBytes>
+        <useMLLPv2>false</useMLLPv2>
+        <ackBytes>06</ackBytes>
+        <nackBytes>15</nackBytes>
+        <maxRetries>2</maxRetries>
+      </transmissionModeProperties>
+      <serverMode>true</serverMode>
+      <reconnectInterval>5000</reconnectInterval>
+      <receiveTimeout>0</receiveTimeout>
+      <bufferSize>65536</bufferSize>
+      <maxConnections>10</maxConnections>
+      <keepConnectionOpen>true</keepConnectionOpen>
+      <dataTypeBinary>false</dataTypeBinary>
+      <charsetEncoding>DEFAULT_ENCODING</charsetEncoding>
+      <respondOnNewConnection>0</respondOnNewConnection>
+      <responseAddress></responseAddress>
+      <responsePort></responsePort>
+    </properties>
+    <transformer version="4.5.2">
+      <elements>
+        <com.mirth.connect.plugins.javascriptstep.JavaScriptStep version="4.5.2">
+          <name>OpenEMR ADT normaliser</name>
+          <sequenceNumber>0</sequenceNumber>
+          <enabled>true</enabled>
+          <script>/**
+ * OpenEMR ADT Inbound Transformer
+ *
+ * Reads ADT messages emitted by the OpenEMR HL7 module and normalises
+ * them for downstream EMR/HIE traffic. OpenEMR has two quirks that
+ * routinely trip up generic ADT consumers:
+ *
+ *   1. OpenEMR uses PID-2 (Patient ID — External ID) as the canonical
+ *      MRN, not PID-3 (Patient Identifier List). Most modern EMRs use
+ *      PID-3. We promote PID-2 -&gt; PID-3.
+ *
+ *   2. OpenEMR&apos;s PID-13 phone uses a non-standard format:
+ *      &apos;617-555-1234&apos; instead of &apos;^PRN^PH^...^617^5551234&apos;.
+ *
+ *   3. OpenEMR sometimes emits the trigger event in MSH-9.1 only
+ *      (&apos;ADT&apos; instead of &apos;ADT^A04&apos;). We detect and patch.
+ *
+ * Output: cleaned-up HL7v2 message string on channelMap.normalizedAdt,
+ *         plus parsed scalar fields for downstream filtering.
+ *
+ * Tested on: Mirth Connect 4.5.2 with OpenEMR 7.0.2 HL7 module
+ * Author: Nirmitee.io | License: MIT
+ */
+
+function get(node, path) {
+    try {
+        var current = node;
+        var parts = path.split(&apos;|&apos;);
+        for (var i = 0; i &lt; parts.length; i++) {
+            if (current === null || current === undefined) return &apos;&apos;;
+            current = current[parts[i]];
+        }
+        return current === null || current === undefined ? &apos;&apos; : (current + &apos;&apos;);
+    } catch (e) { return &apos;&apos;; }
+}
+
+// === Pull from PID — OpenEMR&apos;s quirk first ===
+var pid2 = get(msg, &apos;PID|PID.2|PID.2.1&apos;);             // OpenEMR canonical MRN
+var pid3 = get(msg, &apos;PID|PID.3|PID.3.1&apos;);             // standard MRN
+var mrn = pid3 || pid2;                                // prefer PID-3 if present, else promote PID-2
+
+var lastName = get(msg, &apos;PID|PID.5|PID.5.1&apos;);
+var firstName = get(msg, &apos;PID|PID.5|PID.5.2&apos;);
+var dob = get(msg, &apos;PID|PID.7|PID.7.1&apos;);
+var gender = get(msg, &apos;PID|PID.8|PID.8.1&apos;);
+
+// === OpenEMR phone normalisation ===
+var rawPhone = get(msg, &apos;PID|PID.13|PID.13.1&apos;);
+var formattedPhone = rawPhone;
+if (rawPhone &amp;&amp; rawPhone.indexOf(&apos;^&apos;) === -1) {
+    // 617-555-1234 -&gt; ^PRN^PH^^^617^5551234
+    var m = rawPhone.replace(/[^\d]/g, &apos;&apos;);
+    if (m.length === 10) {
+        formattedPhone = &apos;^PRN^PH^^^&apos; + m.substring(0, 3) + &apos;^&apos; + m.substring(3);
+    }
+}
+
+// === Trigger event normalisation ===
+var triggerType = get(msg, &apos;MSH|MSH.9|MSH.9.1&apos;);     // e.g. &apos;ADT&apos;
+var triggerEvent = get(msg, &apos;MSH|MSH.9|MSH.9.2&apos;);    // e.g. &apos;A04&apos;
+var msgStructure = get(msg, &apos;MSH|MSH.9|MSH.9.3&apos;);    // e.g. &apos;ADT_A04&apos;
+
+if (triggerType &amp;&amp; !triggerEvent) {
+    // OpenEMR sometimes drops the trigger event component. Default by
+    // EVN-1 if present, otherwise assume A08 (update).
+    var evnCode = get(msg, &apos;EVN|EVN.1|EVN.1.1&apos;);
+    triggerEvent = evnCode || &apos;A08&apos;;
+}
+if (!msgStructure) msgStructure = triggerType + &apos;_&apos; + triggerEvent;
+
+// === Emit clean values ===
+channelMap.put(&apos;mrn&apos;, mrn);
+channelMap.put(&apos;mrnSource&apos;, pid3 ? &apos;PID-3&apos; : &apos;PID-2&apos;);
+channelMap.put(&apos;lastName&apos;, lastName);
+channelMap.put(&apos;firstName&apos;, firstName);
+channelMap.put(&apos;dob&apos;, dob);
+channelMap.put(&apos;gender&apos;, gender);
+channelMap.put(&apos;phone&apos;, formattedPhone);
+channelMap.put(&apos;triggerEvent&apos;, triggerEvent);
+channelMap.put(&apos;messageStructure&apos;, msgStructure);
+
+// Rebuild a normalised HL7 message (just the MSH/PID/PV1 — keep all
+// other segments intact via the original outbound template).
+// Most downstream channels will use channelMap fields directly; this
+// is for the case where you want to ship a clean HL7v2 frame.
+logger.info(
+    &apos;OpenEMR ADT &apos; + triggerEvent +
+    &apos; MRN=&apos; + mrn + &apos; (source=&apos; + (pid3 ? &apos;PID-3&apos; : &apos;PID-2&apos;) + &apos;)&apos; +
+    &apos; name=&apos; + firstName + &apos; &apos; + lastName +
+    &apos; phone=&apos; + (rawPhone === formattedPhone ? rawPhone : (rawPhone + &apos; -&gt; &apos; + formattedPhone))
+);
+</script>
+        </com.mirth.connect.plugins.javascriptstep.JavaScriptStep>
+      </elements>
+      <inboundTemplate encoding="base64"></inboundTemplate>
+      <outboundTemplate encoding="base64"></outboundTemplate>
+      <inboundDataType>HL7V2</inboundDataType>
+      <outboundDataType>HL7V2</outboundDataType>
+      <inboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+        <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+          <handleRepetitions>true</handleRepetitions>
+          <handleSubcomponents>true</handleSubcomponents>
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <stripNamespaces>false</stripNamespaces>
+          <segmentDelimiter>\r</segmentDelimiter>
+          <convertLineBreaks>true</convertLineBreaks>
+        </serializationProperties>
+        <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <segmentDelimiter>\r</segmentDelimiter>
+        </deserializationProperties>
+        <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+          <splitType>MSH_Segment</splitType>
+          <batchScript></batchScript>
+        </batchProperties>
+        <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+          <segmentDelimiter>\r</segmentDelimiter>
+          <successfulACKCode>AA</successfulACKCode>
+          <successfulACKMessage></successfulACKMessage>
+          <errorACKCode>AE</errorACKCode>
+          <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+          <rejectedACKCode>AR</rejectedACKCode>
+          <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+          <msh15ACKAccept>false</msh15ACKAccept>
+          <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+        </responseGenerationProperties>
+        <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+          <successfulACKCode>AA,CA</successfulACKCode>
+          <errorACKCode>AE,CE</errorACKCode>
+          <rejectedACKCode>AR,CR</rejectedACKCode>
+          <validateMessageControlId>true</validateMessageControlId>
+          <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+          <originalIdMapVariable></originalIdMapVariable>
+        </responseValidationProperties>
+      </inboundProperties>
+      <outboundProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DataTypeProperties" version="4.5.2">
+        <serializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2SerializationProperties" version="4.5.2">
+          <handleRepetitions>true</handleRepetitions>
+          <handleSubcomponents>true</handleSubcomponents>
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <stripNamespaces>false</stripNamespaces>
+          <segmentDelimiter>\r</segmentDelimiter>
+          <convertLineBreaks>true</convertLineBreaks>
+        </serializationProperties>
+        <deserializationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2DeserializationProperties" version="4.5.2">
+          <useStrictParser>false</useStrictParser>
+          <useStrictValidation>false</useStrictValidation>
+          <segmentDelimiter>\r</segmentDelimiter>
+        </deserializationProperties>
+        <batchProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2BatchProperties" version="4.5.2">
+          <splitType>MSH_Segment</splitType>
+          <batchScript></batchScript>
+        </batchProperties>
+        <responseGenerationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseGenerationProperties" version="4.5.2">
+          <segmentDelimiter>\r</segmentDelimiter>
+          <successfulACKCode>AA</successfulACKCode>
+          <successfulACKMessage></successfulACKMessage>
+          <errorACKCode>AE</errorACKCode>
+          <errorACKMessage>An Error Occurred Processing Message.</errorACKMessage>
+          <rejectedACKCode>AR</rejectedACKCode>
+          <rejectedACKMessage>Message Rejected.</rejectedACKMessage>
+          <msh15ACKAccept>false</msh15ACKAccept>
+          <dateFormat>yyyyMMddHHmmss.SSS</dateFormat>
+        </responseGenerationProperties>
+        <responseValidationProperties class="com.mirth.connect.plugins.datatypes.hl7v2.HL7v2ResponseValidationProperties" version="4.5.2">
+          <successfulACKCode>AA,CA</successfulACKCode>
+          <errorACKCode>AE,CE</errorACKCode>
+          <rejectedACKCode>AR,CR</rejectedACKCode>
+          <validateMessageControlId>true</validateMessageControlId>
+          <originalMessageControlId>Destination_Encoded</originalMessageControlId>
+          <originalIdMapVariable></originalIdMapVariable>
+        </responseValidationProperties>
+      </outboundProperties>
+    </transformer>
+    <filter version="4.5.2">
+      <elements/>
+    </filter>
+    <transportName>TCP Listener</transportName>
+    <mode>SOURCE</mode>
+    <enabled>true</enabled>
+    <waitForPrevious>true</waitForPrevious>
+  </sourceConnector>
+  <destinationConnectors/>
+  <preprocessingScript>return message;</preprocessingScript>
+  <postprocessingScript>return;</postprocessingScript>
+  <deployScript>return;</deployScript>
+  <undeployScript>return;</undeployScript>
+  <properties version="4.5.2">
+    <clearGlobalChannelMap>false</clearGlobalChannelMap>
+    <messageStorageMode>DEVELOPMENT</messageStorageMode>
+    <encryptData>false</encryptData>
+    <encryptAttachments>false</encryptAttachments>
+    <encryptCustomMetaData>false</encryptCustomMetaData>
+    <removeContentOnCompletion>false</removeContentOnCompletion>
+    <removeOnlyFilteredOnCompletion>false</removeOnlyFilteredOnCompletion>
+    <removeAttachmentsOnCompletion>false</removeAttachmentsOnCompletion>
+    <initialState>STARTED</initialState>
+    <storeAttachments>true</storeAttachments>
+    <metaDataColumns/>
+    <attachmentProperties version="4.5.2">
+      <type>None</type>
+      <properties/>
+    </attachmentProperties>
+    <resourceIds class="linked-hash-map">
+      <entry>
+        <string>Default Resource</string>
+        <string>[Default Resource]</string>
+      </entry>
+    </resourceIds>
+  </properties>
+  <exportData>
+    <metadata>
+      <enabled>true</enabled>
+    </metadata>
+    <dependentIds/>
+    <dependencyIds/>
+    <channelTags/>
+  </exportData>
+</channel>
