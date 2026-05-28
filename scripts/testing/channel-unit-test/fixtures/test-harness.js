@@ -115,6 +115,11 @@ function __parseHL7(text) {
     for (var s = 0; s < segs.length; s++) {
         var parts = segs[s].split("|");
         var segId = parts[0];
+        // MSH special case: MSH-1 is the field separator '|' itself, so
+        // shift downstream fields by one to match Mirth's parser.
+        if (segId === "MSH") {
+            parts = [parts[0], "|"].concat(parts.slice(1));
+        }
         var built = build(segId, parts);
         if (root[segId] === undefined) {
             root[segId] = built;

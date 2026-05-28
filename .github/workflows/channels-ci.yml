@@ -1,0 +1,256 @@
+# Recipe #49 — Mirth channel CI
+# Tested on Mirth Connect 4.5.2
+# Author: Nirmitee.io | License: MIT
+name: channels-ci
+
+on:
+  pull_request:
+    paths:
+      - 'channels/**'
+      - 'transformers/**'
+      - 'code-templates/**'
+      - 'scripts/ci/**'
+      - '.github/workflows/channels-ci.yml'
+  push:
+    branches: [main]
+
+concurrency:
+  group: channels-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Detect which channels changed
+  # ---------------------------------------------------------------------------
+  detect-changes:
+    runs-on: ubuntu-22.04
+    outputs:
+      channels: ${{ steps.set.outputs.channels }}
+      any_channels: ${{ steps.set.outputs.any_channels }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: List changed channel files
+        id: set
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${BASE_SHA:-$BEFORE_SHA}"
+          head="${HEAD_SHA}"
+          if [ -z "${base}" ] || [ "${base}" = "0000000000000000000000000000000000000000" ]; then
+            base="$(git rev-parse HEAD~1)"
+          fi
+          changed="$(git diff --name-only "${base}" "${head}" \
+              | grep -E '^(channels|transformers|code-templates)/.*\.xml$' \
+              | jq -R . | jq -sc .)"
+          echo "channels=${changed}" >> "$GITHUB_OUTPUT"
+          if [ "${changed}" = "[]" ]; then
+            echo "any_channels=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "any_channels=true"  >> "$GITHUB_OUTPUT"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 2. Lint every channel XML
+  # ---------------------------------------------------------------------------
+  lint:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any_channels == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install python deps
+        run: pip install lxml==5.2.2 requests==2.32.3
+
+      - name: Run channel linter
+        run: |
+          set -euo pipefail
+          python scripts/ci/lint-channel.py \
+              --paths channels transformers code-templates \
+              --report lint-report.json
+
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report
+          path: lint-report.json
+
+  # ---------------------------------------------------------------------------
+  # 3. JS transformer unit tests (recipe #39 framework)
+  # ---------------------------------------------------------------------------
+  unit-tests:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any_channels == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: 'tests/package-lock.json'
+
+      - name: Install JS test deps
+        working-directory: tests
+        run: npm ci || npm install
+
+      - name: Run transformer unit tests
+        working-directory: tests
+        run: npm test -- --ci --reporters=default --reporters=jest-junit
+        env:
+          JEST_JUNIT_OUTPUT_FILE: ../junit-transformers.xml
+
+      - name: Upload junit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-transformers
+          path: junit-transformers.xml
+
+  # ---------------------------------------------------------------------------
+  # 4. FHIR US Core validation (recipe #40)
+  # ---------------------------------------------------------------------------
+  fhir-validate:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any_channels == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Cache HAPI validator CLI
+        id: cache-hapi
+        uses: actions/cache@v4
+        with:
+          path: validator_cli.jar
+          key: hapi-validator-6.3.11
+
+      - name: Download HAPI validator CLI
+        if: steps.cache-hapi.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          curl -L --fail \
+              https://github.com/hapifhir/org.hl7.fhir.core/releases/download/6.3.11/validator_cli.jar \
+              -o validator_cli.jar
+
+      - name: Run US Core validation
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          fixtures=( sample-data/fhir-fixtures/*.json )
+          if [ ${#fixtures[@]} -eq 0 ]; then
+            echo "[skip] no FHIR fixtures present at sample-data/fhir-fixtures/*.json"
+            exit 0
+          fi
+          java -jar validator_cli.jar \
+              -version 4.0.1 \
+              -ig hl7.fhir.us.core#6.1.0 \
+              "${fixtures[@]}" \
+              | tee fhir-validation.log
+
+      - name: Upload validation log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fhir-validation
+          path: fhir-validation.log
+
+  # ---------------------------------------------------------------------------
+  # 5. Post a transformer-diff comment on the PR
+  # ---------------------------------------------------------------------------
+  pr-diff-comment:
+    needs: [detect-changes, lint]
+    if: github.event_name == 'pull_request' && needs.detect-changes.outputs.any_channels == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - run: pip install lxml==5.2.2
+
+      - name: Render transformer diff
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python scripts/ci/test-channel.py \
+              --base "$BASE_SHA" \
+              --head "$HEAD_SHA" \
+              --out diff-summary.md
+
+      - name: Upload diff summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: diff-summary
+          path: diff-summary.md
+
+      - name: Post PR comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('diff-summary.md', 'utf8');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const { data: comments } = await github.rest.issues.listComments({ owner, repo, issue_number });
+            const marker = '<!-- mirth-channel-ci-diff -->';
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            const finalBody = marker + '\n' + body;
+            if (existing) {
+              await github.rest.issues.updateComment({ owner, repo, comment_id: existing.id, body: finalBody });
+            } else {
+              await github.rest.issues.createComment({ owner, repo, issue_number, body: finalBody });
+            }
+
+  # ---------------------------------------------------------------------------
+  # 6. Required check — all of the above must pass
+  # ---------------------------------------------------------------------------
+  ci-required:
+    needs: [lint, unit-tests, fhir-validate]
+    if: always()
+    runs-on: ubuntu-22.04
+    env:
+      LINT_RESULT: ${{ needs.lint.result }}
+      TEST_RESULT: ${{ needs.unit-tests.result }}
+      FHIR_RESULT: ${{ needs.fhir-validate.result }}
+    steps:
+      - name: Aggregate result
+        shell: bash
+        run: |
+          set -euo pipefail
+          fail=0
+          for j in "$LINT_RESULT" "$TEST_RESULT" "$FHIR_RESULT"; do
+            if [ "$j" != "success" ] && [ "$j" != "skipped" ]; then
+              echo "[fail] dependency job result: $j"
+              fail=1
+            fi
+          done
+          exit "$fail"
