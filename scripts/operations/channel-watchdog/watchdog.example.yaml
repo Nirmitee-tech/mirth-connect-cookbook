@@ -1,0 +1,45 @@
+# Recipe #36 — Channel Status Watchdog — example config
+#
+# Copy to /etc/mirth/watchdog.yaml (or wherever) and reference with:
+#   watchdog.py --config /etc/mirth/watchdog.yaml
+#
+# Secrets are pulled from environment variables using ${VAR_NAME}.
+
+mirth:
+  host:       https://mirth.internal:8443
+  user:       ${MIRTH_USER}
+  password:   ${MIRTH_PASS}
+  verify_tls: false                # set true once you've fixed your CA chain
+
+poll_interval: 60                  # seconds
+
+alerts:
+  slack_webhook:          ${SLACK_WEBHOOK_URL}
+  pagerduty_routing_key:  ${PD_ROUTING_KEY}
+
+# List every channel that should be monitored. Unlisted channels are ignored.
+channels:
+  - name: ADT-Ingest
+    expected_state: STARTED
+    snooze:
+      - days: [sat, sun]
+        start: "02:00"
+        end:   "04:00"
+
+  - name: ORU-Ingest
+    expected_state: STARTED
+
+  - name: LabCorp-Outbound
+    expected_state: STARTED
+    snooze:
+      - days: weekdays
+        start: "23:30"
+        end:   "00:30"   # crosses midnight — handled
+
+  - name: Nightly-Reconcile
+    # This one is supposed to be PAUSED until the cron channel kicks it.
+    expected_state: PAUSED
+
+  - name: AuditTrail
+    expected_state: STARTED
+    snooze: []

@@ -1,0 +1,74 @@
+# Recipe #37 — Loki Log Aggregation for Mirth Connect
+#
+# Drop-in docker-compose addition. Merge with the root docker/docker-compose.yml
+# via:
+#   docker compose -f docker/docker-compose.yml -f docker/observability/docker-compose-loki.yml up -d
+#
+# Services:
+#   loki      — log storage (3100)
+#   promtail  — tails Mirth's log files and ships to Loki
+#   grafana   — UI for querying (3000, admin/admin)
+#
+# Author: Nirmitee.io
+# License: MIT
+# Tested on: Loki 3.x, Promtail 3.x, Grafana 11.x
+
+services:
+  loki:
+    image: grafana/loki:3.0.0
+    container_name: mirth-loki
+    command: -config.file=/etc/loki/local-config.yaml
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./observability/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3100/ready | grep -q 'ready' || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  promtail:
+    image: grafana/promtail:3.0.0
+    container_name: mirth-promtail
+    command: -config.file=/etc/promtail/config.yaml
+    depends_on:
+      loki:
+        condition: service_healthy
+    volumes:
+      - ./observability/promtail-config.yaml:/etc/promtail/config.yaml:ro
+      # Mount Mirth log directory read-only.
+      # The Mirth image writes logs under /opt/connect/logs inside the container.
+      # docker volume mirth-appdata or a bind mount points there.
+      - mirth-appdata:/mnt/mirth:ro
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:11.0.0
+    container_name: mirth-grafana
+    depends_on:
+      loki:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER:     admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP:     "false"
+      GF_INSTALL_PLUGINS:         ""
+    volumes:
+      - ./observability/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/loki.yaml:ro
+      - ./observability/grafana-dashboard-provisioning.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:ro
+      - ./observability/grafana-dashboard.json:/var/lib/grafana/dashboards/mirth-logs.json:ro
+      - grafana-data:/var/lib/grafana
+    restart: unless-stopped
+
+volumes:
+  loki-data:
+  grafana-data:
+  # mirth-appdata is declared in docker/docker-compose.yml — referenced here as external-by-name
+  mirth-appdata:
+    external: true
+    name: docker_mirth-appdata
